@@ -1,0 +1,14 @@
+# Dependencies and builds
+node_modules/
+dist/
+
+# Raw data downloads (rebuilt by data-pipeline scripts)
+data-pipeline/cache/
+
+# Local tooling
+.claude/
+frontend/.hallmark/
+__pycache__/
+*.log
+.DS_Store
+Thumbs.db

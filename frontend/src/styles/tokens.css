@@ -1,0 +1,71 @@
+/* Hallmark · v2.0.0 · genre: atmospheric · theme: DESIGN.md (by request, pinned by the user; space-navy revision 2026-11-08) · shape: one-screen film poster · job: try (open the 3D Earth) · hero: Poster, full-bleed NASA footage, centred · nav: wordmark left, bordered UA/EN switch right, nothing else · footer: none, one credit line inside the hero · posture: committed · signature: Earth from the ISS with the Sun rising over the limb, cut with PACE assembly and launch */
+/* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V4 · weakest: P, a single screen can only promise; the promise is the headline and the one big action into the globe */
+/* Hallmark · waive 39b · the language switch buttons are 32px inside a 40px bordered group so the top bar stays light over the film · the UA and EN switch is still a 44px-wide target */
+/* Hallmark · answered F19 · the serif runs at 300 and Inter at 400 and 500, three weights in all */
+/* Hallmark · answered F7 · the glass chips over the globe and the film (language switch, back, pause, search) share one recipe on purpose so the floating controls read as one set */
+/* Hallmark · dismissed 77 · the user asked for a single screen with no scrolling; the globe page carries everything else */
+/* Hallmark · dismissed 41 · .hero__film, .hero__video and .hero__grade hold footage and a colour grade, no text; .hero sets Star ink */
+/* Hallmark · user-pinned deviations from the floor: 67 (14px uppercase button and switch labels) follows DESIGN.md, which the user supplied */
+
+:root {
+  /* Space navy palette (DESIGN.md) */
+  --color-void: #03060f;
+  --color-navy: #081229;
+  --color-navy-2: #0f1d40;
+  --color-navy-3: #18295a;
+  --color-star: #eef2fb;
+  --color-star-deep: #d3dcf0;
+  --color-haze: #a9b8da;
+  --color-sunrise: #f3bd6e;
+  --color-sunrise-deep: #e7a54a;
+  --color-star-muted: color-mix(in oklab, var(--color-star) 74%, transparent);
+  --color-star-rule: color-mix(in oklab, var(--color-star) 42%, transparent);
+  --color-glass: color-mix(in oklab, var(--color-navy) 55%, transparent);
+  --color-focus: var(--color-sunrise);
+
+  /* Colours read by the WebGL globe */
+  --color-atmosphere: #7fb0ff;
+  --color-stars: #dfe7fb;
+
+  /* Type */
+  --font-display: "Source Serif 4 Variable", "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "Inter Variable", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --weight-display: 300;
+
+  --text-label: 14px;
+  --text-body: 16px;
+  --text-lede: clamp(18px, 1.4vw, 22px);
+  --text-display: clamp(44px, 7.4vw, 128px);
+  --text-wordmark: 15px;
+  --text-cta: 15px;
+
+  --track-display: -0.02em;
+  --track-label: -0.01em;
+  --track-cta: 0.02em;
+
+  /* Space: 4px base */
+  --gutter: clamp(16px, 1.6vw, 32px);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --container: 1600px;
+  --radius-chip: 2px;
+  --cta-height: 56px;
+
+  /* Motion */
+  --dur-chip: 0.3s;
+  --ease-chip: ease;
+  --dur-fade: 1.4s;
+  --ease-fade: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --z-film: 0;
+  --z-veil: 1;
+  --z-content: 2;
+}
