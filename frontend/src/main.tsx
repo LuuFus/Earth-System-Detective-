@@ -11,7 +11,7 @@ import { I18nProvider } from './i18n/I18n';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
         <App />
       </BrowserRouter>
     </I18nProvider>

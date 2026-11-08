@@ -1,25 +1,61 @@
 # Earth-System-Detective-
 3 студєнта які приймають участь в хакатоні від Noosphere
 
+**Українська** | [English](README.en.md)
+
 ---
 
-**Earth System Detective** is our project for the NASA Space Apps Challenge 2026,
-challenge [Earth System Trend Detective](https://www.spaceappschallenge.org/2026/challenges/earth-system-trend-detective/):
-a 3D Earth where you pick a NASA variable and see what is changing, where, by how
-much, and whether the change is statistically significant.
+**Earth System Detective** — наш проєкт для NASA Space Apps Challenge 2026,
+челендж [Earth System Trend Detective](https://www.spaceappschallenge.org/2026/challenges/earth-system-trend-detective/).
+Це 3D-Земля, на якій можна обрати змінну з даних NASA і побачити, що змінюється,
+де, наскільки, і чи ця зміна статистично значуща.
 
-## What is here
+**Сайт:** https://luufus.github.io/Earth-System-Detective-/
 
-- **Home page**: one screen of NASA footage (sunrise over Earth from the ISS, PACE
-  assembly and launch, the ISS at night), the headline and a button into the globe.
-  Ukrainian and English.
-- **3D Earth** (`/explore`): rotate and zoom down to about 380 km with sharp NASA
-  GIBS imagery, country search, borders and country names, and a surface
-  temperature layer from NASA GISTEMP v4 (1880-2025) with three modes: one year,
-  the difference between two years (for example 2025 minus 1960), and the trend
-  per cell (Theil-Sen slope with the Mann-Kendall significance test).
+![Головна сторінка: схід Сонця над Землею, знімок з МКС](docs/screenshots/home.jpg)
 
-## Run it
+## Що вже є
+
+### Головна сторінка
+
+Один екран без прокрутки: відео NASA (схід Сонця над Землею з МКС, Земля вдень
+і вночі, збирання та запуск супутника PACE), головна фраза «На благо всіх» і
+кнопка переходу до 3D-Землі. Сайт працює українською та англійською.
+
+### 3D-Земля (`/explore`)
+
+![3D-Земля](docs/screenshots/globe.jpg)
+
+- **Обертання й масштаб**: мишею, колесом або пальцями, до ~380 км над
+  поверхнею. Під час наближення глобус довантажує з NASA GIBS чіткий знімок
+  саме видимої ділянки (Blue Marble, 500 м на піксель).
+- **Пошук країни**: вводите «Україна», «Японія» чи «Japan», і камера летить туди.
+- **Кордони й назви країн**: міжнародні кордони й берегові лінії з NASA GIBS,
+  назви країн мовою сайту.
+
+![Україна з кордонами й назвами країн](docs/screenshots/ukraine.jpg)
+
+### Шар «Температура поверхні» (NASA GISTEMP v4)
+
+Аномалії температури відносно 1951–1980 років на сітці 2°×2°, 1880–2025 роки.
+
+- **Рік**: аномалія за обраний рік.
+- **Порівняння**: різниця між двома роками, наприклад 2025 мінус 1960.
+- **Тренд**: швидкість зміни в кожній клітинці (°C за 10 років, нахил Тейла-Сена)
+  і перевірка значущості тестом Манна-Кендалла. Незначущі клітинки (p ≥ 0,05)
+  заштриховані.
+- Наведіть курсор або торкніться глобуса, щоб побачити значення в точці.
+  У легенді показано середнє по всій Землі.
+
+![Різниця температури: 2025 мінус 1960](docs/screenshots/compare.jpg)
+
+![Тренд 1960–2025 з позначкою значущості](docs/screenshots/trend.jpg)
+
+### На телефоні
+
+![Мобільна версія: головна і 3D-Земля з шаром температури](docs/screenshots/mobile.jpg)
+
+## Як запустити
 
 ```bash
 cd frontend
@@ -27,18 +63,27 @@ npm install
 npm run dev
 ```
 
-The browser opens by itself. Details, the data pipeline and the code map are in
-[`frontend/README.md`](frontend/README.md); the visual system is in
+Браузер відкриється сам. Подробиці про код, дані й оновлення GISTEMP описано у
+[`frontend/README.md`](frontend/README.md), кольори, шрифти й компоненти — у
 [`DESIGN.md`](DESIGN.md).
 
-## Repository layout
+## Публікація
 
-| Path | What |
+Кожен пуш у гілку `main` запускає GitHub Actions
+([`.github/workflows/pages.yml`](.github/workflows/pages.yml)): сайт
+збирається й викладається в гілку `gh-pages`, звідки його показує GitHub Pages.
+
+## Структура репозиторію
+
+| Шлях | Що там |
 |---|---|
-| `frontend/` | React + TypeScript + Vite app, Three.js globe |
-| `data-pipeline/` | Python scripts that turn NASA datasets into files for the app |
-| `DESIGN.md` | Colours, type and components |
+| `frontend/` | Застосунок на React + TypeScript + Vite, глобус на Three.js |
+| `data-pipeline/` | Python-скрипти, що перетворюють набори даних NASA на файли для сайту |
+| `docs/screenshots/` | Скріншоти для цього README |
+| `DESIGN.md` | Дизайн-система: кольори, шрифти, компоненти |
 
-Data and media: NASA GISS (GISTEMP v4), NASA GIBS, NASA Image and Video Library,
-NASA JSC Crew Earth Observations. This is not an official NASA website, and NASA
-does not endorse the project.
+## Джерела даних
+
+NASA GISS (GISTEMP v4), NASA GIBS, NASA Image and Video Library, NASA JSC Crew
+Earth Observations. Це не офіційний сайт NASA, і NASA не схвалює й не підтримує
+цей проєкт.

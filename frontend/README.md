@@ -1,77 +1,84 @@
-# Earth System Detective: frontend
+# Earth System Detective: фронтенд
 
-NASA Space Apps Challenge 2026 project for the **Earth System Trend Detective**
-challenge. React + TypeScript + Vite, Three.js for the globe.
-The visual system lives in [`../DESIGN.md`](../DESIGN.md).
+**Українська** | [English](README.en.md)
 
-## Run
+Проєкт для NASA Space Apps Challenge 2026, челендж **Earth System Trend Detective**.
+React + TypeScript + Vite, глобус на Three.js. Дизайн-система описана в
+[`../DESIGN.md`](../DESIGN.md).
+
+## Запуск
 
 ```bash
 npm install
-npm run dev        # opens the browser by itself (port 5173, or 5174 if 5173 is busy)
-npm run build      # type-check + production build into dist/
+npm run dev        # браузер відкриється сам (порт 5173, або 5174, якщо 5173 зайнятий)
+npm run build      # перевірка типів і збірка в dist/
 ```
 
-An internet connection is required: video streams from NASA servers
-(images.nasa.gov, eol.jsc.nasa.gov) and the Earth imagery from NASA GIBS. The
-climate data ships with the site (`public/data/gistemp`, 2.4 MB).
+Живий сайт GitHub Actions збирає з гілки `main`, а показує GitHub Pages:
+https://luufus.github.io/Earth-System-Detective-/ (під час збірки `VITE_BASE`
+дорівнює шляху репозиторію, локально сайт працює з `/`).
 
-## What the 3D Earth does (`/explore`)
+Потрібен інтернет: відео йде з серверів NASA (images.nasa.gov, eol.jsc.nasa.gov),
+знімки Землі з NASA GIBS. Кліматичні дані лежать у самому сайті
+(`public/data/gistemp`, 2,4 МБ).
 
-- **Rotate and zoom**: drag, mouse wheel or pinch, down to about 380 km above
-  the surface. Below a certain height the globe asks NASA GIBS for a sharp
-  image of just the visible area (Blue Marble, 500 m per pixel).
-- **Find a country**: the search box flies the camera there. Names come from the
-  browser in Ukrainian or English (`Intl.DisplayNames`), so any spelling works.
-- **Borders and names**: international boundaries (US Department of State) and
-  coastlines from NASA GIBS, country names drawn by the app in the site language.
-- **Surface temperature, NASA GISTEMP v4** (anomalies against 1951-1980, 2-degree
-  cells, 1880-2025):
-  - *Year*: the anomaly of one year.
-  - *Compare*: the difference between two years, for example 2025 minus 1960.
-  - *Trend*: per-cell Theil-Sen slope in degrees per decade over a chosen period,
-    with the Mann-Kendall test; cells with p of 0.05 or more are hatched. Runs in a
+## Що вміє 3D-Земля (`/explore`)
+
+- **Обертання й масштаб**: перетягування, колесо миші або два пальці, до ~380 км
+  над поверхнею. Нижче певної висоти глобус просить у NASA GIBS чіткий знімок
+  лише видимої ділянки (Blue Marble, 500 м на піксель).
+- **Пошук країни**: камера летить до обраної країни. Назви бере сам браузер
+  українською або англійською (`Intl.DisplayNames`), тож підходить будь-яке
+  написання.
+- **Кордони й назви**: міжнародні кордони (Державний департамент США) і берегові
+  лінії з NASA GIBS, назви країн малює застосунок мовою сайту.
+- **Температура поверхні, NASA GISTEMP v4** (аномалії відносно 1951–1980,
+  клітинки 2°, 1880–2025):
+  - *Рік*: аномалія за один рік.
+  - *Порівняння*: різниця між двома роками, наприклад 2025 мінус 1960.
+  - *Тренд*: нахил Тейла-Сена в кожній клітинці (°C за 10 років) за обраний
+    період і тест Манна-Кендалла. Клітинки з p ≥ 0,05 заштриховані. Рахується у
     Web Worker (`src/workers/trend.worker.ts`).
-  - Hover or tap the globe to read the value of a cell; the legend shows the
-    global mean for the same choice.
+  - Наведіть курсор або торкніться глобуса, щоб прочитати значення клітинки.
+    Легенда показує середнє по Землі для того самого вибору.
 
-## Updating the climate data
+## Оновлення кліматичних даних
 
 ```bash
-python data-pipeline/build_gistemp.py            # from the repository root
-python data-pipeline/build_gistemp.py --refresh  # fetch the newest GISTEMP file
+python data-pipeline/build_gistemp.py            # з кореня репозиторію
+python data-pipeline/build_gistemp.py --refresh  # скачати найсвіжіший файл GISTEMP
 ```
 
-The script downloads `gistemp1200_GHCNv4_ERSSTv5.nc.gz` (about 26 MB) from NASA
-GISS into `data-pipeline/cache/` (git-ignored), averages each cell into calendar
-years (at least 9 valid months) and writes `public/data/gistemp/annual.bin` and
-`meta.json`. Needs Python with numpy and scipy.
+Скрипт качає `gistemp1200_GHCNv4_ERSSTv5.nc.gz` (~26 МБ) з NASA GISS у
+`data-pipeline/cache/` (не потрапляє в git), усереднює кожну клітинку по
+календарних роках (щонайменше 9 місяців з даними) і пише
+`public/data/gistemp/annual.bin` та `meta.json`. Потрібен Python з numpy і scipy.
 
-## Where things are
+## Де що лежить
 
-| Path | What |
+| Шлях | Що там |
 |---|---|
-| `src/pages/Home.tsx` | One-screen home: background film, headline, button into the globe |
-| `src/pages/Explore.tsx` | `/explore`: globe, search, layer panel |
-| `src/components/HeroFilm.tsx` | Background film: crossfades, buffering logic, pause |
-| `src/components/Globe.tsx` | Three.js globe: GIBS maps and close-ups, borders, labels, data layer, fly-to, picking |
-| `src/components/ExplorePanel.tsx` | Layer switches, year sliders, legend, value readout |
-| `src/components/CountrySearch.tsx` | Country search |
-| `src/hooks/useClimateLayer.ts` | Loads GISTEMP, builds the year, difference or trend field |
-| `src/data/gistemp.ts` | GISTEMP file format, colour ramp, global statistics |
-| `src/data/countries.ts` | Country centroids (Google DSPL table, CC BY 4.0) |
-| `src/data/media.ts` | Video clips, GIBS map URLs |
-| `src/i18n/strings.ts` | All copy, Ukrainian and English |
-| `src/styles/tokens.css` | Colours, fonts, spacing (the only place literal colours live) |
-| `src/styles/site.css` | Component styles |
+| `src/pages/Home.tsx` | Головна на один екран: фонове відео, фраза, кнопка до глобуса |
+| `src/pages/Explore.tsx` | `/explore`: глобус, пошук, панель шарів |
+| `src/components/HeroFilm.tsx` | Фонове відео: переходи, логіка буферизації, пауза |
+| `src/components/Globe.tsx` | Глобус Three.js: карти й чіткі знімки GIBS, кордони, назви, шар даних, переліт, значення під курсором |
+| `src/components/ExplorePanel.tsx` | Перемикачі шарів, повзунки років, легенда, значення в точці |
+| `src/components/CountrySearch.tsx` | Пошук країни |
+| `src/hooks/useClimateLayer.ts` | Завантаження GISTEMP, поле року, різниці або тренду |
+| `src/data/gistemp.ts` | Формат файлу GISTEMP, кольорова шкала, глобальна статистика |
+| `src/data/countries.ts` | Центри країн (таблиця Google DSPL, CC BY 4.0) |
+| `src/data/media.ts` | Відеофрагменти, адреси карт GIBS |
+| `src/i18n/strings.ts` | Усі тексти сайту українською та англійською |
+| `src/styles/tokens.css` | Кольори, шрифти, відступи (єдине місце з конкретними кольорами) |
+| `src/styles/site.css` | Стилі компонентів |
 
-## Changing content
+## Як змінювати вміст
 
-- **Text**: edit both `uk` and `en` in `src/i18n/strings.ts`.
-- **A background clip**: edit `filmClips` in `src/data/media.ts`. `start` and `end`
-  are seconds into the source video, `rate` slows a short time-lapse. Avoid
-  stretches with burned-in titles.
-- **Video quality**: 1080p on large screens with a fast connection, 720p
-  otherwise, 640px on phones and slow or data-saving connections.
+- **Тексти сайту**: правте обидві мови, `uk` і `en`, у `src/i18n/strings.ts`.
+- **Фонове відео**: `filmClips` у `src/data/media.ts`. `start` і `end` — секунди
+  у вихідному відео, `rate` сповільнює короткий таймлапс. Уникайте фрагментів із
+  вшитими титрами.
+- **Якість відео**: 1080p на великих екранах зі швидким інтернетом, 720p в
+  інших випадках, 640px на телефонах і повільному або економному з'єднанні.
 
-NASA insignia are not used; the credit line states the site is not an official NASA website.
+Логотипи NASA не використовуються; у підписі сказано, що це не офіційний сайт NASA.
