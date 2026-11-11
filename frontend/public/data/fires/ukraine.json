@@ -1,0 +1,19 @@
+{
+ "source": "NASA FIRMS, VIIRS 375 m (Suomi NPP), yearly country archive for Ukraine; type 0, nominal and high confidence",
+ "url": "https://firms.modaps.eosdis.nasa.gov/country/",
+ "unit": "detections",
+ "scale": 1,
+ "noData": -32768,
+ "box": {
+  "s": 44.0,
+  "n": 53.0,
+  "w": 22.0,
+  "e": 41.0
+ },
+ "step": 0.25,
+ "rows": 36,
+ "cols": 76,
+ "start": "2012-01",
+ "months": 168,
+ "built": "2026-11-11"
+}

@@ -3,33 +3,78 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { countries } from '../data/countries';
-import { earthDayMaps, gibsBox, gibsGlobal } from '../data/media';
+import { RAMP } from '../data/gistemp';
 import { useReducedMotion } from '../hooks/useMedia';
 import type { Lang } from '../i18n/strings';
+import { stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmsSource, wmtsSource, type Box, type TileSource } from './globe/tiles';
 
 /** Where the camera starts: over Ukraine, pulled back to show the whole disc. */
-const START = { lat: 42, lon: 28, distance: 3.4 };
-/** About 380 km above the surface; a NASA GIBS close-up covers the view below DETAIL_FROM. */
-const MIN_DISTANCE = 1.06;
+const START = { lat: 42, lon: 28 };
+/** About 95 km above the surface: the Landsat base map has detail down to there. */
+const MIN_DISTANCE = 1.015;
 const MAX_DISTANCE = 9;
-const DETAIL_FROM = 2.3;
+/** Below this distance the close-up tiles start. */
+const DETAIL_FROM = 2.6;
 /** Big countries are named from this far out, the rest from LABELS_ALL. */
 const LABELS_BIG = 4.2;
 const LABELS_ALL = 1.9;
-/** NASA GIBS line layers: US Department of State international boundaries and 15 m coastlines. */
-const BORDER_LAYERS = 'Coastlines_15m,DoS_International_Boundaries';
+/** Hints about anomalies appear once the camera is this close. */
+const HINTS_FROM = 2.0;
+/** NASA GIBS line layers: US Department of State international boundaries and coastlines (dropped up close). */
+const BORDERS = wmsSource('Coastlines_15m,DoS_International_Boundaries', 10, undefined, 'DoS_International_Boundaries');
+/**
+ * Base map: NASA Blue Marble (500 m) down to its finest level, then the Landsat WELD global mosaic
+ * (30 m, 1998-2000 composite) for close views. Blue Marble itself is a 2004 composite.
+ */
+const BASE = stackSource(
+  'base',
+  wmtsSource('BlueMarble_NextGeneration', '500m', 'image/jpeg'),
+  wmtsSource('Landsat_WELD_CorrectedReflectance_TrueColor_Global_Annual', '31.25m', 'image/jpeg', '2000-12-01'),
+);
 
-export type GlobeOverlay = { rgba: Uint8Array; width: number; height: number; key: string };
+/** Climate cells: R = value (0..1) times validity, G = validity, B = significance times validity. */
+export type GlobeData = { rgba: Uint8Array; width: number; height: number; key: string };
+/** `points`: a layer of point detections (fires), drawn in one colour above the vector layer. */
+export type GlobeImagery = { source: TileSource; opacity: number; points?: boolean };
 export type GlobePoint = { lat: number; lon: number };
-export type GlobeApi = { flyTo: (lat: number, lon: number, distance?: number) => void };
+export type GlobeMarker = { id: string; lat: number; lon: number; label: string };
+/** A hint about an anomaly, shown when zoomed in on its area. */
+export type GlobeHint = { id: string; lat: number; lon: number; label: string };
+export type GlobeView = { lat: number; lon: number; distance: number };
+/** A painted canvas draped over a lat/lon box (the Ukraine war layer). */
+/** A vector layer painted on a canvas over `box`; `draw` repaints any part of it sharper for close views. */
+export type GlobeVector = {
+  canvas: HTMLCanvasElement;
+  box: Box;
+  key: string;
+  draw?: (box: Box, width: number) => HTMLCanvasElement;
+};
+/** Before/after: the layers for the left of the shutter (the normal props draw the right). */
+export type GlobeCompare = { imagery: GlobeImagery | null; data: GlobeData | null; leftLabel: string; rightLabel: string; handleLabel: string };
+
+export type GlobeApi = {
+  /** Loads a map layer for the current view without showing it (playback looks one step ahead). */
+  preload: (source: TileSource) => Promise<void>;
+  flyTo: (lat: number, lon: number, distance?: number) => void;
+  jumpTo: (lat: number, lon: number, distance: number) => void;
+  getView: () => GlobeView;
+};
 
 type Props = {
   label: string;
   fallback: string;
   lang: Lang;
-  overlay: GlobeOverlay | null;
+  data: GlobeData | null;
+  imagery: GlobeImagery | null;
   showBorders: boolean;
-  onPoint?: (point: GlobePoint | null) => void;
+  vector: GlobeVector | null;
+  markers: GlobeMarker[];
+  compare?: GlobeCompare | null;
+  hints?: GlobeHint[];
+  onHint?: (id: string) => void;
+  onHover?: (point: GlobePoint | null) => void;
+  onPick?: (point: GlobePoint) => void;
+  onView?: (view: GlobeView) => void;
   onLoadingChange?: (loading: boolean) => void;
   apiRef?: MutableRefObject<GlobeApi | null>;
 };
@@ -51,22 +96,7 @@ function toLatLon(p: THREE.Vector3): GlobePoint {
   return { lat: THREE.MathUtils.radToDeg(Math.asin(v.y)), lon: THREE.MathUtils.radToDeg(Math.atan2(-v.z, v.x)) };
 }
 
-/** Where a ray meets the unit sphere, or null. */
-function hitSphere(ray: THREE.Ray, out: THREE.Vector3): THREE.Vector3 | null {
-  return ray.intersectSphere(new THREE.Sphere(new THREE.Vector3(), 1), out);
-}
-
-// A close-up texture replaces the global one inside its bounds (u0, v0, u1, v1).
-const detailGlsl = /* glsl */ `
-  uniform sampler2D uDetail;
-  uniform vec4 uBounds;
-  uniform float uDetailMix;
-  vec4 withDetail(vec4 base, vec2 uv) {
-    vec2 d = (uv - uBounds.xy) / (uBounds.zw - uBounds.xy);
-    if (uDetailMix <= 0.0 || d.x < 0.0 || d.y < 0.0 || d.x > 1.0 || d.y > 1.0) return base;
-    return mix(base, texture2D(uDetail, d), uDetailMix);
-  }
-`;
+const UNIT_SPHERE = new THREE.Sphere(new THREE.Vector3(), 1);
 
 const vertex = /* glsl */ `
   varying vec2 vUv;
@@ -80,22 +110,22 @@ const vertex = /* glsl */ `
 
 // The light rides with the camera (up and to the left of the viewer), so the visible side is always lit.
 const earthFragment = /* glsl */ `
-  uniform sampler2D uDay;
   uniform float uReady;
+  uniform float uGlint;
   uniform vec3 uAtmosphere;
   varying vec2 vUv;
   varying vec3 vNormalV;
-  ${detailGlsl}
+  ${tiledGlsl('uBase')}
   void main() {
     vec3 n = normalize(vNormalV);
     vec3 light = normalize(vec3(-0.45, 0.55, 0.9));
     float ndl = dot(n, light);
-    vec3 map = withDetail(texture2D(uDay, vUv), vUv).rgb;
-    vec3 base = mix(vec3(0.04, 0.07, 0.14), map, uReady);
+    vec4 map = uBaseSample(vUv);
+    vec3 base = mix(vec3(0.04, 0.07, 0.14), map.rgb, map.a * uReady);
     vec3 col = base * (0.42 + 0.78 * max(ndl, 0.0));
-    float ocean = smoothstep(0.015, 0.09, base.b - base.r) * uReady;
+    float ocean = smoothstep(0.015, 0.09, base.b - base.r) * map.a;
     vec3 h = normalize(light + vec3(0.0, 0.0, 1.0));
-    col += vec3(0.85, 0.88, 0.95) * pow(max(dot(n, h), 0.0), 70.0) * 0.22 * ocean;
+    col += vec3(0.85, 0.88, 0.95) * pow(max(dot(n, h), 0.0), 70.0) * 0.22 * ocean * uGlint;
     float rim = pow(1.0 - max(n.z, 0.0), 3.0);
     col += uAtmosphere * rim * 0.6;
     gl_FragColor = vec4(col, 1.0);
@@ -104,32 +134,80 @@ const earthFragment = /* glsl */ `
   }
 `;
 
-const bordersFragment = /* glsl */ `
-  uniform sampler2D uGlobal;
+// Before/after shutter: uSplit is the split line in drawing-buffer pixels; uSide 0 draws
+// everywhere, +1 only right of the line, -1 only left of it.
+const clipGlsl = /* glsl */ `
+  uniform float uSplit;
+  uniform float uSide;
+  void clipSide() {
+    if (uSide != 0.0 && (gl_FragCoord.x - uSplit) * uSide < 0.0) discard;
+  }
+`;
+
+const overlayFragment = (prefix: string) => /* glsl */ `
   uniform float uOpacity;
+  uniform vec4 uTint;
   varying vec2 vUv;
-  ${detailGlsl}
+  ${tiledGlsl(prefix)}
+  ${clipGlsl}
   void main() {
-    vec4 c = withDetail(texture2D(uGlobal, vUv), vUv);
+    clipSide();
+    vec4 c = ${prefix}Sample(vUv);
     if (c.a < 0.02) discard;
-    gl_FragColor = vec4(c.rgb, c.a * uOpacity);
+    // Point layers are recoloured so they stay visible over the red of the war layer.
+    vec3 rgb = mix(c.rgb, uTint.rgb, uTint.a);
+    gl_FragColor = vec4(rgb, c.a * uOpacity);
     #include <colorspace_fragment>
   }
 `;
 
-// Data cells: alpha 1 = value, ~0.43 = trend not significant (hatched in its own hue), 0 = no data.
+// Values are stored premultiplied by validity, so linear filtering averages only cells with data
+// and the field comes out smooth instead of square.
 const dataFragment = /* glsl */ `
   uniform sampler2D uData;
+  uniform vec3 uRamp[7];
   uniform vec2 uGrid;
   uniform float uOpacity;
   varying vec2 vUv;
+  vec3 ramp(float t) {
+    float x = clamp(t, 0.0, 1.0) * 6.0;
+    int i = int(min(floor(x), 5.0));
+    return mix(uRamp[i], uRamp[i + 1], x - float(i));
+  }
+  ${clipGlsl}
   void main() {
+    clipSide();
     vec4 c = texture2D(uData, vUv);
-    if (c.a < 0.05) discard;
-    float weak = 1.0 - step(0.7, c.a);
+    float valid = c.g;
+    if (valid < 0.3) discard;
+    float t = c.r / valid;
+    float significant = c.b / valid;
+    vec3 col = ramp(t);
     float hatch = step(0.5, fract((vUv.x * uGrid.x + vUv.y * uGrid.y) * 1.5));
-    vec3 col = mix(c.rgb, c.rgb * 0.5, weak * hatch);
-    gl_FragColor = vec4(col, uOpacity);
+    col = mix(col, col * 0.5, (1.0 - step(0.5, significant)) * hatch);
+    gl_FragColor = vec4(col, uOpacity * smoothstep(0.3, 0.7, valid));
+    #include <colorspace_fragment>
+  }
+`;
+
+const vectorFragment = /* glsl */ `
+  uniform sampler2D uVec;
+  uniform vec4 uVecBounds;
+  uniform sampler2D uVecPatch;
+  uniform vec4 uVecPatchBounds;
+  varying vec2 vUv;
+  void main() {
+    vec4 c;
+    vec2 p = (vUv - uVecPatchBounds.xy) / max(uVecPatchBounds.zw - uVecPatchBounds.xy, vec2(1e-9));
+    if (uVecPatchBounds.z > uVecPatchBounds.x && p.x >= 0.0 && p.y >= 0.0 && p.x <= 1.0 && p.y <= 1.0) {
+      c = texture2D(uVecPatch, p);
+    } else {
+      vec2 d = (vUv - uVecBounds.xy) / (uVecBounds.zw - uVecBounds.xy);
+      if (d.x < 0.0 || d.y < 0.0 || d.x > 1.0 || d.y > 1.0) discard;
+      c = texture2D(uVec, d);
+    }
+    if (c.a < 0.02) discard;
+    gl_FragColor = c;
     #include <colorspace_fragment>
   }
 `;
@@ -153,17 +231,25 @@ const atmosphereFragment = /* glsl */ `
 `;
 
 type Api = GlobeApi & {
-  setAutoRotate: (on: boolean) => void;
-  setOverlay: (overlay: GlobeOverlay | null) => void;
+  setData: (data: GlobeData | null) => void;
+  setImagery: (imagery: GlobeImagery | null) => void;
+  setCompare: (left: { imagery: GlobeImagery | null; data: GlobeData | null } | null) => void;
+  setSplit: (fraction: number) => void;
   setBorders: (on: boolean) => void;
+  setVector: (vector: GlobeVector | null) => void;
+  setMarkers: (markers: GlobeMarker[]) => void;
+  setHints: (hints: GlobeHint[]) => void;
   setLang: (lang: Lang) => void;
   setReducedMotion: (on: boolean) => void;
   dispose: () => void;
 };
 
 type Callbacks = {
-  onPoint: (point: GlobePoint | null) => void;
+  onHover: (point: GlobePoint | null) => void;
+  onPick: (point: GlobePoint) => void;
+  onView: (view: GlobeView) => void;
   onLoading: (loading: boolean) => void;
+  onHint: (id: string) => void;
 };
 
 function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, cb: Callbacks): Api | null {
@@ -185,81 +271,185 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
 
   let reduced = opts.reduced;
   let disposed = false;
+  let needsRender = true;
+  const requestRender = () => {
+    needsRender = true;
+  };
   /** Until the user moves the camera, keep the whole planet framed for the screen shape. */
   let framed = true;
+
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(35, 1, 0.005, 300);
-  camera.position.copy(fromLatLon(START.lat, START.lon, START.distance));
+  camera.position.copy(fromLatLon(START.lat, START.lon, 3.4));
 
-  const loader = new THREE.TextureLoader();
-  loader.setCrossOrigin('anonymous');
-  const maxAniso = renderer.capabilities.getMaxAnisotropy();
-  const prepare = (tex: THREE.Texture) => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = maxAniso;
-    return tex;
+  const anisotropy = renderer.capabilities.getMaxAnisotropy();
+  let pending = 0;
+  const onLoading = (delta: number) => {
+    const before = pending > 0;
+    pending += delta;
+    if (before !== pending > 0) cb.onLoading(pending > 0);
   };
 
-  // Earth
+  // Layers
+  // The global map stays coarse (level 2, about 15 km a pixel): that is sharp enough for the whole
+  // globe, and closer views get the close-up patch. A finer global level cost ~5 MB at start.
+  const base = new TiledLayer(2, anisotropy, requestRender, onLoading);
+  base.noData.value = 0.0012; // 4/255 in sRGB: open sea in the Landsat mosaic is pure black, water is brighter
+  const imagery = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
+  const borders = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
+  base.setSource(BASE);
+
   const atmosphereColor = readToken('--color-atmosphere', '#7fb0ff');
-  const earthUniforms = {
-    uDay: { value: new THREE.Texture() },
-    uReady: { value: 0 },
-    uAtmosphere: { value: atmosphereColor },
-    uDetail: { value: new THREE.Texture() },
-    uBounds: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uDetailMix: { value: 0 },
-  };
+  const earthUniforms = { uReady: { value: 1 }, uGlint: { value: 1 }, uAtmosphere: { value: atmosphereColor }, ...tiledUniforms('uBase', base) };
+  // Every layer is drawn on the same sphere as the earth, without a depth test: lifted even a few
+  // kilometres, a layer would slide against the map at close zoom. Back faces are culled, so the
+  // far side of the globe never shows through.
+  const sphere = new THREE.SphereGeometry(1, 160, 120);
   const earth = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 192, 144),
+    sphere,
     new THREE.ShaderMaterial({ uniforms: earthUniforms, vertexShader: vertex, fragmentShader: earthFragment }),
   );
   scene.add(earth);
 
-  // Climate data cells
-  const dataUniforms = {
-    uData: { value: new THREE.Texture() },
-    uGrid: { value: new THREE.Vector2(180, 90) },
-    uOpacity: { value: 0.82 },
+  const fireColor = readToken('--color-fire', '#ffd23f');
+  const split = { value: 0 };
+  let splitFraction = 0.5;
+  const imageryUniforms = {
+    uOpacity: { value: 0.9 },
+    uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uSplit: split,
+    uSide: { value: 0 },
+    ...tiledUniforms('uImg', imagery),
   };
-  const dataLayer = new THREE.Mesh(
-    new THREE.SphereGeometry(1.0015, 192, 144),
+  const imageryMesh = new THREE.Mesh(
+    sphere,
     new THREE.ShaderMaterial({
-      uniforms: dataUniforms,
+      uniforms: imageryUniforms,
       vertexShader: vertex,
-      fragmentShader: dataFragment,
+      fragmentShader: overlayFragment('uImg'),
       transparent: true,
+      depthTest: false,
       depthWrite: false,
     }),
   );
-  dataLayer.renderOrder = 1;
-  dataLayer.visible = false;
-  scene.add(dataLayer);
+  imageryMesh.renderOrder = 1;
+  imageryMesh.visible = false;
+  scene.add(imageryMesh);
 
-  // Borders and coastlines (NASA GIBS)
-  const bordersUniforms = {
-    uGlobal: { value: new THREE.Texture() },
+  // The left side of the before/after shutter: a second imagery layer.
+  const imageryL = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
+  const imageryUniformsL = {
     uOpacity: { value: 0.9 },
-    uDetail: { value: new THREE.Texture() },
-    uBounds: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uDetailMix: { value: 0 },
+    uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uSplit: split,
+    uSide: { value: -1 },
+    ...tiledUniforms('uImg', imageryL),
   };
-  const borders = new THREE.Mesh(
-    new THREE.SphereGeometry(1.003, 192, 144),
+  const imageryMeshL = new THREE.Mesh(
+    sphere,
+    new THREE.ShaderMaterial({
+      uniforms: imageryUniformsL,
+      vertexShader: vertex,
+      fragmentShader: overlayFragment('uImg'),
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  imageryMeshL.renderOrder = 1;
+  imageryMeshL.visible = false;
+  scene.add(imageryMeshL);
+
+  const dataUniforms = {
+    uData: { value: new THREE.Texture() },
+    uRamp: { value: RAMP.map(([r, g, b]) => new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace)) },
+    uGrid: { value: new THREE.Vector2(180, 90) },
+    uOpacity: { value: 0.85 },
+    uSplit: split,
+    uSide: { value: 0 },
+  };
+  const dataMesh = new THREE.Mesh(
+    sphere,
+    new THREE.ShaderMaterial({ uniforms: dataUniforms, vertexShader: vertex, fragmentShader: dataFragment, transparent: true, depthTest: false, depthWrite: false }),
+  );
+  dataMesh.renderOrder = 2;
+  dataMesh.visible = false;
+  scene.add(dataMesh);
+
+  const dataUniformsL = { ...dataUniforms, uData: { value: new THREE.Texture() }, uGrid: { value: new THREE.Vector2(180, 90) }, uSide: { value: -1 } };
+  const dataMeshL = new THREE.Mesh(
+    sphere,
+    new THREE.ShaderMaterial({ uniforms: dataUniformsL, vertexShader: vertex, fragmentShader: dataFragment, transparent: true, depthTest: false, depthWrite: false }),
+  );
+  dataMeshL.renderOrder = 2;
+  dataMeshL.visible = false;
+  scene.add(dataMeshL);
+
+  const bordersUniforms = {
+    uOpacity: { value: 0.9 },
+    uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uSplit: split,
+    uSide: { value: 0 },
+    ...tiledUniforms('uLine', borders),
+  };
+  const bordersMesh = new THREE.Mesh(
+    sphere,
     new THREE.ShaderMaterial({
       uniforms: bordersUniforms,
       vertexShader: vertex,
-      fragmentShader: bordersFragment,
+      fragmentShader: overlayFragment('uLine'),
       transparent: true,
+      depthTest: false,
       depthWrite: false,
     }),
   );
-  borders.renderOrder = 2;
-  borders.visible = false;
-  scene.add(borders);
-  let bordersLoaded = false;
+  bordersMesh.renderOrder = 3;
+  bordersMesh.visible = false;
+  scene.add(bordersMesh);
 
-  // Atmosphere
+  const vectorUniforms = {
+    uVec: { value: new THREE.Texture() },
+    uVecBounds: { value: new THREE.Vector4() },
+    uVecPatch: { value: new THREE.Texture() },
+    uVecPatchBounds: { value: new THREE.Vector4() },
+  };
+  let vector: GlobeVector | null = null;
+  let vectorPatchKey = '';
+  const uvBounds = (b: Box) => [(b.w + 180) / 360, (b.s + 90) / 180, (b.e + 180) / 360, (b.n + 90) / 180] as const;
+  const clearVectorPatch = () => {
+    vectorPatchKey = '';
+    vectorUniforms.uVecPatchBounds.value.set(0, 0, 0, 0);
+  };
+  /** Repaints the visible part of the vector layer at screen resolution once that beats the whole-layer canvas. */
+  const updateVectorPatch = (box: Box | null, px: number) => {
+    if (!vector?.draw || !box || !vectorMesh.visible) return clearVectorPatch();
+    const vb = vector.box;
+    const part = { w: Math.max(box.w, vb.w), s: Math.max(box.s, vb.s), e: Math.min(box.e, vb.e), n: Math.min(box.n, vb.n) };
+    const degPerPixel = (box.e - box.w) / px;
+    const wholePerPixel = (vb.e - vb.w) / vector.canvas.width;
+    if (part.e <= part.w || part.n <= part.s || degPerPixel > wholePerPixel * 0.7) return clearVectorPatch();
+    const width = Math.min(4096, Math.ceil((part.e - part.w) / degPerPixel));
+    const key = `${vector.key}|${part.w.toFixed(3)},${part.s.toFixed(3)},${part.e.toFixed(3)},${part.n.toFixed(3)}|${width}`;
+    if (key === vectorPatchKey) return;
+    vectorPatchKey = key;
+    const tex = new THREE.CanvasTexture(vector.draw(part, width));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = anisotropy;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const previous = vectorUniforms.uVecPatch.value;
+    vectorUniforms.uVecPatch.value = tex;
+    previous.dispose();
+    vectorUniforms.uVecPatchBounds.value.set(...uvBounds(part));
+    requestRender();
+  };
+  const vectorMesh = new THREE.Mesh(
+    sphere,
+    new THREE.ShaderMaterial({ uniforms: vectorUniforms, vertexShader: vertex, fragmentShader: vectorFragment, transparent: true, depthTest: false, depthWrite: false }),
+  );
+  vectorMesh.renderOrder = 2.5;
+  vectorMesh.visible = false;
+  scene.add(vectorMesh);
+
   scene.add(
     new THREE.Mesh(
       new THREE.SphereGeometry(1.07, 96, 72),
@@ -306,6 +496,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     return { country: c, obj, normal: fromLatLon(c.lat, c.lon, 1) };
   });
 
+  // Region markers
+  let markerObjects: { obj: CSS2DObject; normal: THREE.Vector3 }[] = [];
+  let hintObjects: { obj: CSS2DObject; normal: THREE.Vector3 }[] = [];
+
   // Controls
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
@@ -320,60 +514,27 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     framed = false;
     flight = null;
   });
+  controls.addEventListener('change', requestRender);
 
+  // Speeds follow the altitude: close up a drag moves the ground about as far as the cursor, and
+  // a wheel step changes the height by a share of itself instead of jumping into the surface.
   const tuneSpeed = () => {
-    const altitude = camera.position.length() - 1;
-    controls.rotateSpeed = THREE.MathUtils.clamp(altitude * 0.4, 0.02, 0.6);
-    controls.zoomSpeed = THREE.MathUtils.clamp(altitude * 0.5, 0.25, 1);
+    const distance = camera.position.length();
+    const altitude = distance - 1;
+    controls.rotateSpeed = THREE.MathUtils.clamp(altitude * 0.16, 0.0008, 0.6);
+    controls.zoomSpeed = THREE.MathUtils.clamp(Math.log(1 - (0.18 * altitude) / distance) / Math.log(0.95), 0.02, 1);
   };
 
-  // Global maps: small first, sharp second.
-  let best = -1;
-  earthDayMaps.forEach((url, level) => {
-    loader.load(url, (tex) => {
-      if (disposed || level < best) {
-        tex.dispose();
-        return;
-      }
-      const previous = earthUniforms.uDay.value;
-      earthUniforms.uDay.value = prepare(tex);
-      previous.dispose();
-      if (best < 0) animateUniform(earthUniforms.uReady, 1, 900);
-      best = level;
-    });
-  });
-
-  function animateUniform(uniform: { value: number }, to: number, ms: number) {
-    const from = uniform.value;
-    const t0 = performance.now();
-    const step = (now: number) => {
-      if (disposed) return;
-      const t = reduced ? 1 : Math.min(1, (now - t0) / ms);
-      uniform.value = from + (to - from) * t;
-      if (t < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }
-
-  // Close-up imagery for the current view, fetched from NASA GIBS once the camera settles.
+  // What is visible: cast a grid of rays at the sphere.
   const raycaster = new THREE.Raycaster();
   const hit = new THREE.Vector3();
-  let detailTimer = 0;
-  let detailRequest = 0;
-  let detailKey = '';
-  let pending = 0;
-  const setPending = (delta: number) => {
-    pending += delta;
-    cb.onLoading(pending > 0);
-  };
-
-  function visibleBox(): { s: number; w: number; n: number; e: number } | null {
+  function visibleBox(): Box | null {
     const lats: number[] = [];
     const lons: number[] = [];
     for (let i = 0; i <= 8; i++) {
       for (let j = 0; j <= 8; j++) {
         raycaster.setFromCamera(new THREE.Vector2(-1 + i / 4, -1 + j / 4), camera);
-        if (hitSphere(raycaster.ray, hit)) {
+        if (raycaster.ray.intersectSphere(UNIT_SPHERE, hit)) {
           const p = toLatLon(hit);
           lats.push(p.lat);
           lons.push(p.lon);
@@ -383,113 +544,56 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     if (lats.length < 4) return null;
     let w = Math.min(...lons);
     let e = Math.max(...lons);
-    if (e - w > 180) {
-      const shifted = lons.map((l) => (l < 0 ? l + 360 : l));
-      w = Math.min(...shifted);
-      e = Math.max(...shifted);
-      if (e - w > 180 || e > 180) return null; // the view straddles the antimeridian
-    }
-    let s = Math.min(...lats);
-    let n = Math.max(...lats);
-    const padLon = (e - w) * 0.15 + 0.5;
-    const padLat = (n - s) * 0.15 + 0.5;
-    s = Math.max(-90, s - padLat);
-    n = Math.min(90, n + padLat);
-    w = Math.max(-180, w - padLon);
-    e = Math.min(180, e + padLon);
+    if (e - w > 180) return null; // across the antimeridian: the global maps cover it
+    const s = Math.max(-90, Math.min(...lats) - 1);
+    const n = Math.min(90, Math.max(...lats) + 1);
+    w = Math.max(-180, w - 1);
+    e = Math.min(180, e + 1);
     return { s, w, n, e };
   }
 
-  function clearDetail() {
-    detailKey = '';
-    earthUniforms.uDetailMix.value = 0;
-    bordersUniforms.uDetailMix.value = 0;
-  }
-
-  function requestDetail() {
+  let viewTimer = 0;
+  let lastRefresh = 0;
+  const refreshView = () => {
     if (disposed) return;
-    if (camera.position.length() > DETAIL_FROM) {
-      clearDetail();
-      return;
-    }
-    const box = visibleBox();
-    if (!box) {
-      clearDetail();
-      return;
-    }
-    const lonSpan = box.e - box.w;
-    const latSpan = box.n - box.s;
-    const px = Math.min(4096, Math.max(1024, Math.round(renderer.domElement.width * 1.25)));
-    let width = px;
-    let height = Math.round((px * latSpan) / lonSpan);
-    if (height > 4096) {
-      width = Math.round((width * 4096) / height);
-      height = 4096;
-    }
-    const key = [box.s, box.w, box.n, box.e].map((v) => v.toFixed(2)).join(',') + `:${width}:${borders.visible}`;
-    if (key === detailKey) return;
-    detailKey = key;
-    const id = ++detailRequest;
-    const bounds = new THREE.Vector4((box.w + 180) / 360, (box.s + 90) / 180, (box.e + 180) / 360, (box.n + 90) / 180);
-
-    setPending(1);
-    loader.load(
-      gibsBox('BlueMarble_NextGeneration', box, width, height, 'image/jpeg'),
-      (tex) => {
-        setPending(-1);
-        if (disposed || id !== detailRequest) {
-          tex.dispose();
-          return;
-        }
-        const previous = earthUniforms.uDetail.value;
-        earthUniforms.uDetail.value = prepare(tex);
-        earthUniforms.uBounds.value.copy(bounds);
-        previous.dispose();
-        earthUniforms.uDetailMix.value = 0;
-        animateUniform(earthUniforms.uDetailMix, 1, 500);
-      },
-      undefined,
-      () => setPending(-1),
-    );
-
-    if (borders.visible) {
-      setPending(1);
-      loader.load(
-        gibsBox(BORDER_LAYERS, box, width, height, 'image/png'),
-        (tex) => {
-          setPending(-1);
-          if (disposed || id !== detailRequest) {
-            tex.dispose();
-            return;
-          }
-          const previous = bordersUniforms.uDetail.value;
-          bordersUniforms.uDetail.value = prepare(tex);
-          bordersUniforms.uBounds.value.copy(bounds);
-          previous.dispose();
-          bordersUniforms.uDetailMix.value = 1;
-        },
-        undefined,
-        () => setPending(-1),
-      );
-    } else {
-      bordersUniforms.uDetailMix.value = 0;
-    }
-  }
-
-  const scheduleDetail = () => {
-    window.clearTimeout(detailTimer);
-    detailTimer = window.setTimeout(requestDetail, 450);
+    const distance = camera.position.length();
+    const box = distance < DETAIL_FROM ? visibleBox() : null;
+    lastRefresh = performance.now();
+    // Screen pixels, counting display scaling: a 150% screen needs sharper tiles.
+    const px = host.clientWidth * Math.max(1.25, renderer.getPixelRatio());
+    base.updateView(box, px);
+    if (imageryMesh.visible) imagery.updateView(box, px);
+    if (imageryMeshL.visible) imageryL.updateView(box, px);
+    if (bordersMesh.visible) borders.updateView(box, px);
+    updateVectorPatch(box, px);
+    const p = toLatLon(camera.position);
+    cb.onView({ lat: p.lat, lon: p.lon, distance });
   };
-  controls.addEventListener('end', scheduleDetail);
+  // Tiles start loading while the camera still moves: 150 ms after it settles, and at least every
+  // 600 ms during a long zoom or drag.
+  const scheduleView = () => {
+    window.clearTimeout(viewTimer);
+    if (performance.now() - lastRefresh > 600) {
+      viewTimer = window.setTimeout(refreshView, 0);
+      return;
+    }
+    viewTimer = window.setTimeout(refreshView, 150);
+  };
+  controls.addEventListener('change', scheduleView);
 
-  // Hover and tap: report the point under the pointer.
+  // Hover and pick
   const pointer = new THREE.Vector2();
   let pointerDirty = false;
   let pointerInside = false;
   let downAt: { x: number; y: number } | null = null;
+  const canvas = renderer.domElement;
   const toNdc = (e: PointerEvent) => {
-    const rect = renderer.domElement.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  };
+  const pointAt = (): GlobePoint | null => {
+    raycaster.setFromCamera(pointer, camera);
+    return raycaster.ray.intersectSphere(UNIT_SPHERE, hit) ? toLatLon(hit) : null;
   };
   const onMove = (e: PointerEvent) => {
     if (e.pointerType !== 'mouse' || e.buttons) return;
@@ -499,7 +603,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   };
   const onLeave = () => {
     pointerInside = false;
-    cb.onPoint(null);
+    cb.onHover(null);
   };
   const onDown = (e: PointerEvent) => {
     downAt = { x: e.clientX, y: e.clientY };
@@ -507,39 +611,40 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   const onUp = (e: PointerEvent) => {
     if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6) {
       toNdc(e);
-      pointerInside = true;
-      pointerDirty = true;
+      const p = pointAt();
+      if (p) {
+        cb.onPick(p);
+        cb.onHover(p);
+      }
     }
     downAt = null;
   };
-  const canvas = renderer.domElement;
   canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerleave', onLeave);
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('pointerup', onUp);
-
-  let lastPick = 0;
-  const pick = (now: number) => {
-    if (!pointerDirty || !pointerInside || now - lastPick < 60) return;
-    lastPick = now;
+  let lastHover = 0;
+  const hover = (now: number) => {
+    if (!pointerDirty || !pointerInside || now - lastHover < 60) return;
+    lastHover = now;
     pointerDirty = false;
-    raycaster.setFromCamera(pointer, camera);
-    cb.onPoint(hitSphere(raycaster.ray, hit) ? toLatLon(hit) : null);
+    cb.onHover(pointAt());
   };
 
-  // Labels: only countries on the near side, big ones first as the camera comes closer.
+  // Labels and markers: only on the near side.
   const camDir = new THREE.Vector3();
   const updateLabels = () => {
     const distance = camera.position.length();
     camDir.copy(camera.position).normalize();
     const horizon = 1 / distance;
     for (const l of labels) {
-      const show =
-        borders.visible &&
+      l.obj.visible =
+        bordersMesh.visible &&
         l.normal.dot(camDir) > horizon + 0.12 &&
         (l.country.big ? distance <= LABELS_BIG : distance <= LABELS_ALL);
-      l.obj.visible = show;
     }
+    for (const m of markerObjects) m.obj.visible = m.normal.dot(camDir) > horizon + 0.02;
+    for (const h of hintObjects) h.obj.visible = distance <= HINTS_FROM && h.normal.dot(camDir) > horizon + 0.05;
   };
 
   // Fly-to
@@ -551,122 +656,221 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
     const dir = flight.from.clone().lerp(flight.to, e).normalize();
     const arc = Math.sin(Math.PI * e) * Math.min(0.8, flight.from.angleTo(flight.to) * 0.35);
-    const d = flight.d0 + (flight.d1 - flight.d0) * e + arc;
-    camera.position.copy(dir.multiplyScalar(d));
+    camera.position.copy(dir.multiplyScalar(flight.d0 + (flight.d1 - flight.d0) * e + arc));
     camera.lookAt(0, 0, 0);
     if (t >= 1) {
       flight = null;
       controls.enabled = true;
-      scheduleDetail();
+      refreshView();
     }
   };
 
-  // Resize and loop
+  // Resize
   const resize = () => {
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
     labelRenderer.setSize(w, h);
+    split.value = splitFraction * renderer.domElement.width;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     if (framed) {
       const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
       const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
-      const fit = THREE.MathUtils.clamp(1.12 / Math.sin(Math.min(vHalf, hHalf)), 2.6, MAX_DISTANCE);
-      camera.position.setLength(fit);
+      camera.position.setLength(THREE.MathUtils.clamp(1.12 / Math.sin(Math.min(vHalf, hHalf)), 2.6, MAX_DISTANCE));
     }
-    scheduleDetail();
+    requestRender();
+    scheduleView();
   };
   const observer = new ResizeObserver(resize);
   observer.observe(host);
   resize();
 
+  // Render only when something changed: camera, tiles, layers, labels.
   renderer.setAnimationLoop((now) => {
-    if (flight) runFlight(now);
-    else {
+    if (flight) {
+      runFlight(now);
+      needsRender = true;
+    } else {
       tuneSpeed();
-      controls.update();
+      if (controls.update()) needsRender = true;
     }
-    pick(now);
+    hover(now);
+    if (!needsRender) return;
+    needsRender = false;
+    // The sun glint on the ocean only reads well from far away; close up it would be a bright smear.
+    earthUniforms.uGlint.value = THREE.MathUtils.smoothstep(camera.position.length(), 1.6, 2.6);
     updateLabels();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
   });
 
+  const placeCamera = (lat: number, lon: number, distance: number) => {
+    camera.position.copy(fromLatLon(lat, lon, THREE.MathUtils.clamp(distance, MIN_DISTANCE, MAX_DISTANCE)));
+    camera.lookAt(0, 0, 0);
+    controls.update();
+    requestRender();
+    refreshView();
+  };
+
+  function applyData(mesh: THREE.Mesh, uniforms: typeof dataUniforms, data: GlobeData | null) {
+    if (!data) {
+      mesh.visible = false;
+      requestRender();
+      return;
+    }
+    const tex = new THREE.DataTexture(data.rgba, data.width, data.height, THREE.RGBAFormat);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.needsUpdate = true;
+    const previous = uniforms.uData.value;
+    uniforms.uData.value = tex;
+    uniforms.uGrid.value.set(data.width, data.height);
+    previous.dispose();
+    mesh.visible = true;
+    requestRender();
+  }
+
+  function applyImagery(mesh: THREE.Mesh, uniforms: typeof imageryUniforms, layer: TiledLayer, next: GlobeImagery | null) {
+    mesh.visible = !!next;
+    layer.setSource(next?.source ?? null);
+    if (next) uniforms.uOpacity.value = next.opacity;
+    const tint = uniforms.uTint.value;
+    if (next?.points) tint.set(fireColor.r, fireColor.g, fireColor.b, 1);
+    else tint.set(0, 0, 0, 0);
+    // Points go above the war layer (2.5); continuous fields stay under it.
+    mesh.renderOrder = next?.points ? 2.7 : 1;
+    requestRender();
+    scheduleView();
+  }
+
   return {
+    preload(source) {
+      return imagery.preload(source);
+    },
     flyTo(lat, lon, distance = 1.7) {
       controls.autoRotate = false;
       framed = false;
-      const target = fromLatLon(lat, lon, 1);
       const d1 = THREE.MathUtils.clamp(distance, MIN_DISTANCE, MAX_DISTANCE);
       if (reduced) {
-        camera.position.copy(target.multiplyScalar(d1));
-        camera.lookAt(0, 0, 0);
-        scheduleDetail();
+        placeCamera(lat, lon, d1);
         return;
       }
       controls.enabled = false;
-      flight = {
-        from: camera.position.clone().normalize(),
-        to: target,
-        d0: camera.position.length(),
-        d1,
-        t0: performance.now(),
-        ms: 1600,
-      };
+      flight = { from: camera.position.clone().normalize(), to: fromLatLon(lat, lon, 1), d0: camera.position.length(), d1, t0: performance.now(), ms: 1600 };
     },
-    setAutoRotate(on) {
-      controls.autoRotate = on;
+    jumpTo(lat, lon, distance) {
+      controls.autoRotate = false;
+      framed = false;
+      flight = null;
+      controls.enabled = true;
+      placeCamera(lat, lon, distance);
+    },
+    getView() {
+      const p = toLatLon(camera.position);
+      return { lat: p.lat, lon: p.lon, distance: camera.position.length() };
     },
     setReducedMotion(on) {
       reduced = on;
       if (on) controls.autoRotate = false;
     },
-    setOverlay(overlay) {
-      if (!overlay) {
-        dataLayer.visible = false;
-        return;
-      }
-      const tex = new THREE.DataTexture(overlay.rgba, overlay.width, overlay.height, THREE.RGBAFormat);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.magFilter = THREE.NearestFilter;
-      tex.minFilter = THREE.NearestFilter;
-      tex.needsUpdate = true;
-      const previous = dataUniforms.uData.value;
-      dataUniforms.uData.value = tex;
-      dataUniforms.uGrid.value.set(overlay.width, overlay.height);
-      previous.dispose();
-      dataLayer.visible = true;
+    setData(data) {
+      applyData(dataMesh, dataUniforms, data);
+    },
+    setImagery(next) {
+      applyImagery(imageryMesh, imageryUniforms, imagery, next);
+    },
+    setCompare(left) {
+      const on = !!left;
+      imageryUniforms.uSide.value = on ? 1 : 0;
+      dataUniforms.uSide.value = on ? 1 : 0;
+      applyImagery(imageryMeshL, imageryUniformsL, imageryL, left?.imagery ?? null);
+      applyData(dataMeshL, dataUniformsL, left?.data ?? null);
+    },
+    setSplit(fraction) {
+      splitFraction = fraction;
+      split.value = fraction * renderer.domElement.width;
+      requestRender();
     },
     setBorders(on) {
-      borders.visible = on;
-      if (on && !bordersLoaded) {
-        bordersLoaded = true;
-        setPending(1);
-        loader.load(
-          gibsGlobal(BORDER_LAYERS, 4096, 'image/png'),
-          (tex) => {
-            setPending(-1);
-            if (disposed) return tex.dispose();
-            bordersUniforms.uGlobal.value = prepare(tex);
-          },
-          undefined,
-          () => {
-            setPending(-1);
-            bordersLoaded = false;
-          },
-        );
+      bordersMesh.visible = on;
+      borders.setSource(on ? BORDERS : null);
+      requestRender();
+      scheduleView();
+    },
+    setVector(next) {
+      vector = next;
+      clearVectorPatch();
+      if (!next) {
+        vectorMesh.visible = false;
+        requestRender();
+        return;
       }
-      detailKey = '';
-      scheduleDetail();
+      const tex = new THREE.CanvasTexture(next.canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = anisotropy;
+      const previous = vectorUniforms.uVec.value;
+      vectorUniforms.uVec.value = tex;
+      previous.dispose();
+      vectorUniforms.uVecBounds.value.set(...uvBounds(next.box));
+      vectorMesh.visible = true;
+      requestRender();
+      scheduleView();
+    },
+    setMarkers(markers) {
+      for (const m of markerObjects) scene.remove(m.obj);
+      markerObjects = markers.map((m) => {
+        const el = document.createElement('div');
+        el.className = `globe__marker globe__marker--${m.id.toLowerCase()}`;
+        const pin = document.createElement('span');
+        pin.className = 'globe__marker-pin';
+        pin.textContent = m.id;
+        const text = document.createElement('span');
+        text.className = 'globe__marker-text';
+        text.textContent = m.label;
+        el.append(pin, text);
+        const obj = new CSS2DObject(el);
+        obj.position.copy(fromLatLon(m.lat, m.lon, 1.004));
+        scene.add(obj);
+        return { obj, normal: fromLatLon(m.lat, m.lon, 1) };
+      });
+      requestRender();
+    },
+    setHints(hints) {
+      for (const h of hintObjects) scene.remove(h.obj);
+      hintObjects = hints.map((h) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'globe__hint';
+        el.setAttribute('aria-label', h.label);
+        const icon = document.createElement('span');
+        icon.className = 'globe__hint-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = '!';
+        const text = document.createElement('span');
+        text.className = 'globe__hint-text';
+        text.textContent = h.label;
+        el.append(icon, text);
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          cb.onHint(h.id);
+        });
+        const obj = new CSS2DObject(el);
+        obj.position.copy(fromLatLon(h.lat, h.lon, 1.004));
+        scene.add(obj);
+        return { obj, normal: fromLatLon(h.lat, h.lon, 1) };
+      });
+      requestRender();
     },
     setLang(lang) {
       names = new Intl.DisplayNames([lang], { type: 'region' });
       for (const l of labels) l.obj.element.textContent = names.of(l.country.code) ?? l.country.name;
+      requestRender();
     },
     dispose() {
       disposed = true;
-      window.clearTimeout(detailTimer);
+      window.clearTimeout(viewTimer);
       renderer.setAnimationLoop(null);
       observer.disconnect();
       controls.dispose();
@@ -674,6 +878,14 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointerup', onUp);
+      base.dispose();
+      imagery.dispose();
+      imageryL.dispose();
+      borders.dispose();
+      dataUniforms.uData.value.dispose();
+      dataUniformsL.uData.value.dispose();
+      vectorUniforms.uVec.value.dispose();
+      vectorUniforms.uVecPatch.value.dispose();
       scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         mesh.geometry?.dispose();
@@ -681,9 +893,6 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
         else mat?.dispose();
       });
-      for (const u of [earthUniforms.uDay, earthUniforms.uDetail, bordersUniforms.uGlobal, bordersUniforms.uDetail, dataUniforms.uData]) {
-        u.value.dispose();
-      }
       renderer.dispose();
       renderer.domElement.remove();
       labelRenderer.domElement.remove();
@@ -691,24 +900,30 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   };
 }
 
-/** Full-screen interactive Earth: drag to rotate, wheel or pinch to zoom. */
-export function Globe({ label, fallback, lang, overlay, showBorders, onPoint, onLoadingChange, apiRef }: Props) {
+/** Full-screen interactive Earth: drag to rotate, wheel or pinch to zoom, click to pick a place. */
+export function Globe(props: Props) {
+  const { label, fallback, lang, data, imagery, showBorders, vector, markers, compare, apiRef } = props;
   const hostRef = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
   const reduced = useReducedMotion();
   const [failed, setFailed] = useState(false);
-  const latest = useRef({ onPoint, onLoadingChange, reduced, lang });
-  latest.current = { onPoint, onLoadingChange, reduced, lang };
+  const latest = useRef(props);
+  latest.current = props;
+  const reducedRef = useRef(reduced);
+  reducedRef.current = reduced;
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const created = createGlobe(
       host,
-      { reduced: latest.current.reduced, lang: latest.current.lang },
+      { reduced: reducedRef.current, lang: latest.current.lang },
       {
-        onPoint: (p) => latest.current.onPoint?.(p),
+        onHover: (p) => latest.current.onHover?.(p),
+        onPick: (p) => latest.current.onPick?.(p),
+        onView: (v) => latest.current.onView?.(v),
         onLoading: (l) => latest.current.onLoadingChange?.(l),
+        onHint: (id) => latest.current.onHint?.(id),
       },
     );
     if (!created) setFailed(true);
@@ -724,11 +939,71 @@ export function Globe({ label, fallback, lang, overlay, showBorders, onPoint, on
   useEffect(() => api.current?.setReducedMotion(reduced), [reduced]);
   useEffect(() => api.current?.setLang(lang), [lang]);
   useEffect(() => api.current?.setBorders(showBorders), [showBorders]);
-  useEffect(() => api.current?.setOverlay(overlay), [overlay]);
+  useEffect(() => api.current?.setData(data), [data]);
+  useEffect(() => api.current?.setImagery(imagery), [imagery]);
+  useEffect(() => api.current?.setMarkers(markers), [markers]);
+  useEffect(() => api.current?.setHints(props.hints ?? []), [props.hints]);
+  useEffect(() => api.current?.setVector(vector), [vector]);
+  const compareImagery = compare?.imagery ?? null;
+  const compareData = compare?.data ?? null;
+  const comparing = !!compare;
+  useEffect(
+    () => api.current?.setCompare(comparing ? { imagery: compareImagery, data: compareData } : null),
+    [comparing, compareImagery, compareData],
+  );
+  const [split, setSplit] = useState(0.5);
+  useEffect(() => api.current?.setSplit(split), [split]);
 
   return (
-    <div ref={hostRef} className="globe" role="img" aria-label={label}>
-      {failed && <p className="globe__fallback">{fallback}</p>}
+    <>
+      <div ref={hostRef} className="globe" role="img" aria-label={label}>
+        {failed && <p className="globe__fallback">{fallback}</p>}
+      </div>
+      {compare && <SplitHandle split={split} onSplit={setSplit} compare={compare} />}
+    </>
+  );
+}
+
+/** The shutter's line and knob: drag it, or use the arrow keys. */
+function SplitHandle({ split, onSplit, compare }: { split: number; onSplit: (f: number) => void; compare: GlobeCompare }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const clamp = (f: number) => Math.min(0.95, Math.max(0.05, f));
+  const move = (clientX: number) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (rect) onSplit(clamp((clientX - rect.left) / rect.width));
+  };
+  return (
+    <div ref={ref} className="globe-split" style={{ ['--split' as string]: split }}>
+      <span className="globe-split__line" aria-hidden="true" />
+      <span className="globe-split__label globe-split__label--left">{compare.leftLabel}</span>
+      <span className="globe-split__label globe-split__label--right">{compare.rightLabel}</span>
+      <div
+        className="globe-split__knob"
+        role="slider"
+        tabIndex={0}
+        aria-label={compare.handleLabel}
+        aria-valuemin={5}
+        aria-valuemax={95}
+        aria-valuenow={Math.round(split * 100)}
+        aria-valuetext={`${compare.leftLabel} | ${compare.rightLabel}`}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          move(e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) move(e.clientX);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') onSplit(clamp(split - 0.02));
+          else if (e.key === 'ArrowRight') onSplit(clamp(split + 0.02));
+          else return;
+          e.preventDefault();
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M7 5 2 10l5 5M13 5l5 5-5 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
     </div>
   );
 }

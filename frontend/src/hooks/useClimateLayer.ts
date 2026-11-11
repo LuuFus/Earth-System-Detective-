@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GlobeOverlay } from '../components/Globe';
+import type { GlobeData } from '../components/Globe';
 import {
   areaMean,
   differenceField,
@@ -23,7 +23,7 @@ export type ClimateState = {
   computing: boolean;
   data: Gistemp | null;
   field: Field | null;
-  overlay: GlobeOverlay | null;
+  overlay: GlobeData | null;
   /** Global summary for the legend: anomaly, difference or trend with its p-value. */
   global: { value: number; p?: number } | null;
   retry: () => void;
@@ -99,7 +99,7 @@ export function useClimateLayer(enabled: boolean, mode: ClimateMode, year: numbe
     return () => window.clearTimeout(timer);
   }, [enabled, data, mode, year, from, to]);
 
-  const overlay = useMemo<GlobeOverlay | null>(() => {
+  const overlay = useMemo<GlobeData | null>(() => {
     if (!enabled || !data || !field) return null;
     const { meta } = data;
     return { rgba: fieldToRGBA(meta, field, RANGE[mode]), width: meta.nlon, height: meta.nlat, key: `${mode}:${year}:${from}:${to}` };
