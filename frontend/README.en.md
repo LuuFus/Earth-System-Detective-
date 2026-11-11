@@ -22,24 +22,79 @@ An internet connection is required: video streams from NASA servers
 (images.nasa.gov, eol.jsc.nasa.gov) and the Earth imagery from NASA GIBS. The
 climate data ships with the site (`public/data/gistemp`, 2.4 MB).
 
-## What the 3D Earth does (`/explore`)
+## What the 3D Earth does (`/explore`): the studio
 
-- **Rotate and zoom**: drag, mouse wheel or pinch, down to about 380 km above
-  the surface. Below a certain height the globe asks NASA GIBS for a sharp
-  image of just the visible area (Blue Marble, 500 m per pixel).
-- **Find a country**: the search box flies the camera there. Names come from the
-  browser in Ukrainian or English (`Intl.DisplayNames`), so any spelling works.
-- **Borders and names**: international boundaries (US Department of State) and
-  coastlines from NASA GIBS, country names drawn by the app in the site language.
-- **Surface temperature, NASA GISTEMP v4** (anomalies against 1951-1980, 2-degree
-  cells, 1880-2025):
-  - *Year*: the anomaly of one year.
-  - *Compare*: the difference between two years, for example 2025 minus 1960.
-  - *Trend*: per-cell Theil-Sen slope in degrees per decade over a chosen period,
-    with the Mann-Kendall test; cells with p of 0.05 or more are hatched. Runs in a
-    Web Worker (`src/workers/trend.worker.ts`).
-  - Hover or tap the globe to read the value of a cell; the legend shows the
-    global mean for the same choice.
+A tool rail on the left: **Layers, Cases, Analysis, Glossary, Share**. A timeline
+with a Play button at the bottom, the analysis drawer on the right.
+
+- **Globe**: rotate, zoom with the wheel or two fingers, down to about 95 km.
+  The base map is NASA Blue Marble (500 m) and, up close, the Landsat WELD
+  mosaic (30 m, 1998-2000 imagery). NASA GIBS imagery streams in as CDN tiles,
+  sharper for the visible area. A new close-up or a new year appears whole,
+  once it has loaded (or after 2.5 s), so the globe never shows a mix of scales
+  or a bare map. Layers sit on the same sphere as the map, so they do not slide
+  up close. A frame is drawn only when something changed.
+- **Layers**: 12 NASA variables, each with a plain definition:
+  - *with numbers*: temperature anomaly (GISTEMP, 1880-2025); air temperature,
+    precipitation, soil moisture and humidity (NASA POWER, MERRA-2, 1981-2025);
+    the Antarctic ozone hole area (NASA Ozone Watch, 1979-2025); and over
+    Ukraine, monthly NO₂ (OMI, 2005 to March 2026), vegetation and land surface
+    temperature (MODIS, since 2000) and fire counts (NASA FIRMS, VIIRS, since
+    2012);
+  - *map only for now*: night lights (VIIRS) and true colour. In true colour the
+    no-data strips between MODIS Terra orbits are filled from another
+    satellite's image of the same day (VIIRS from 2016, MODIS Aqua from 2002).
+  - Imagery layers show the official NASA GIBS legend.
+- **War in Ukraine**: occupied, partly occupied and active-hostility hromadas from
+  the official list of the Ministry for Development of Ukraine (Order No. 376).
+- **Analysis**: click a place on the globe (region A), optionally add region B.
+  The drawer builds the time series and shows:
+  - the Theil-Sen slope with its 95% confidence interval;
+  - the Mann-Kendall test and the t-test;
+  - a light: "significant trend", "a trend, but not significant" or "not enough
+    data";
+  - the Weatherhead (1998) estimate of years still needed to reach significance;
+  - an A-to-B comparison: "N times as fast" or "opposite signs";
+  - tiles: change over the period, the record year, the latest year against
+    the mean.
+
+  At the top, one plain sentence: what changed, by how much, and whether it is
+  reliable ("Kyiv: from 1981 to 2025 it got warmer by about 2.4 °C"). The
+  statistical terms are folded under "Details for those who know statistics".
+
+  The **by year** chart carries the trend on for 10 years with the 95% band a
+  single year should fall in if the trend goes on. Event marks explain the
+  turns ("Pinatubo", "El Niño", "Montreal Protocol", "Invasion"). Click a year
+  on the chart and the globe shows that year. The **by month** chart shows the
+  last four years, the period mean and the expected next year.
+
+  Region size: point, 250, 500 or 1000 km. Monthly data can be split by season.
+  The chart downloads as CSV (with the continued trend) and PNG.
+- **Hints on the globe**: zoom in on a place where something notable happened
+  (the 2020 Chornobyl zone fires, field burning, Kakhovka, the Aral Sea, Lake
+  Chad, Pinatubo, the Amazon in 2019, Canada in 2023, Arctic sea ice) and a "!"
+  appears. Its card says what it is and links the NASA article and the image of
+  that day in NASA Worldview. Every statement comes from those sources.
+- **Before/after divider**: "Compare years" on the timeline splits the globe
+  with a line; one year on the left, another on the right. Works for GISTEMP
+  and every imagery layer; drag the line or move it with the arrow keys.
+- **Detective cases**: 8 ready-made investigations that fly to the place, turn
+  on the layer and compute the trends live:
+  - the Arctic;
+  - the warming hole off Greenland;
+  - the Aral Sea (divider 2000 / 2025);
+  - the Kakhovka Reservoir (divider 2022 / 2023);
+  - the ozone hole;
+  - the Sahel;
+  - Ukraine (climate);
+  - Ukraine (the war seen from space).
+- **Play**: animates the years on the globe, for example 1880 to 2025 for
+  GISTEMP, at 1×, 2× or 4×.
+- **Share**: the page address always holds the current view (layer, years,
+  regions, case, camera); the button copies it.
+
+The statistics are checked against SciPy: the Sen slope, its confidence interval
+and the t-test p-value agree to the fifth decimal.
 
 ## Updating the climate data
 
@@ -52,6 +107,52 @@ The script downloads `gistemp1200_GHCNv4_ERSSTv5.nc.gz` (about 26 MB) from NASA
 GISS into `data-pipeline/cache/` (git-ignored), averages each cell into calendar
 years (at least 9 valid months) and writes `public/data/gistemp/annual.bin` and
 `meta.json`. Needs Python with numpy and scipy.
+
+Other scripts:
+
+```bash
+python data-pipeline/build_ozone.py        # NASA Ozone Watch: ozone hole area by year
+python data-pipeline/build_occupation.py   # official list of occupied territories + OSM hromada boundaries
+```
+
+`build_occupation.py` reads the three DOCX parts of the official list from
+zakon.rada.gov.ua (Order No. 376, current edition), keeps each settlement's status
+that has no end date and rolls them up to hromadas. Hromada boundaries come from
+OpenStreetMap by KATOTTG code (the `katotth` tag), © OpenStreetMap contributors,
+ODbL. Crimea has no hromadas on the ground and Sevastopol is listed whole, so they
+are drawn from their districts, which follow the coast rather than the edge of the
+territorial sea. The current edition gives 149 occupied hromadas outside Crimea, plus Crimea and
+Sevastopol, 24 partly occupied and 60 with active hostilities. For a new edition
+pass the new links and date:
+`--docx URL URL URL --edition DD.MM.YYYY`.
+
+NASA Earthdata data needs a free Earthdata Login token: copy
+`data-pipeline/.env.example` to `data-pipeline/.env` and paste the token there
+(not into `.env.example`!). The `.env` file is never committed.
+
+```bash
+python data-pipeline/build_no2.py         # OMI NO₂ over Ukraine, monthly since 2005 (~35 min)
+python data-pipeline/build_modis.py ndvi  # MODIS vegetation (NDVI), monthly since 2000
+python data-pipeline/build_modis.py lst   # MODIS daytime land surface temperature
+python data-pipeline/build_fires.py       # NASA FIRMS: fires in Ukraine by month since 2012 (no token needed)
+```
+
+`build_no2.py` reads the daily OMNO2d v003 files through NASA's cloud OPeNDAP and
+fetches only the box over Ukraine (44-53° N, 22-41° E), about 40 kB a day
+instead of 11 MB. For every 0.25° cell it averages the days of a month (at least
+3) and writes `public/data/no2/ukraine.bin` and `ukraine.json`. Progress is
+cached month by month, so an interrupted run picks up where it stopped. Months
+with no files in the NASA archive (OMI after March 2026) stay empty.
+
+`build_modis.py` likewise reads only the box over Ukraine from MOD13C2 and
+MOD11C3 and averages the 0.05° pixels into 0.25° cells. `build_fires.py` takes
+NASA FIRMS's public yearly archive for Ukraine (VIIRS 375 m) and counts
+detections by month; industrial sources (type 2), offshore (type 3) and
+low-confidence detections are left out.
+
+A year in these series is the mean of each month's departure from that month's
+normal plus the mean normal, with at least 9 months: a missing winter month
+(clouds, snow) does not drag the year up or down.
 
 ## Where things are
 

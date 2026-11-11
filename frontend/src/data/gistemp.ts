@@ -89,7 +89,7 @@ export function areaMean(meta: GistempMeta, values: Float32Array): number {
 
 // Diverging blue-red ramp with a light neutral midpoint, equal steps per arm.
 // The dark ends are lifted so cold cells stay visible over dark ocean imagery.
-const RAMP: [number, number, number][] = [
+export const RAMP: [number, number, number][] = [
   [0x24, 0x57, 0xb3],
   [0x3f, 0x7f, 0xd0],
   [0x94, 0xbd, 0xe8],
@@ -111,18 +111,20 @@ export function rampColor(t: number): [number, number, number] {
   return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
 }
 
-/** RGBA texture for the globe overlay. Alpha 255 = data, 110 = not significant (hatched), 0 = no data. */
+/** Texture for the globe's data layer: R = position on the colour ramp (0..1) times validity,
+ * G = validity, B = significance times validity. Premultiplying lets linear filtering average
+ * only cells that have data, so the field draws smooth instead of square. */
 export function fieldToRGBA(meta: GistempMeta, field: Field, range: number): Uint8Array {
   const cells = meta.nlat * meta.nlon;
   const out = new Uint8Array(cells * 4);
   for (let i = 0; i < cells; i++) {
     const v = field.values[i];
+    out[i * 4 + 3] = 255;
     if (!Number.isFinite(v)) continue;
-    const [r, g, b] = rampColor(v / range);
-    out[i * 4] = r;
-    out[i * 4 + 1] = g;
-    out[i * 4 + 2] = b;
-    out[i * 4 + 3] = field.significant && !field.significant[i] ? 110 : 255;
+    const t = (Math.max(-1, Math.min(1, v / range)) + 1) / 2;
+    out[i * 4] = Math.round(t * 255);
+    out[i * 4 + 1] = 255;
+    out[i * 4 + 2] = !field.significant || field.significant[i] ? 255 : 0;
   }
   return out;
 }
