@@ -3,6 +3,8 @@
 /* Hallmark · waive 39b · the language switch buttons are 32px inside a 40px bordered group so the top bar stays light over the film · the UA and EN switch is still a 44px-wide target */
 /* Hallmark · answered F19 · the serif runs at 300 and Inter at 400 and 500, three weights in all */
 /* Hallmark · answered F7 · the glass chips over the globe and the film (language switch, back, pause, search) share one recipe on purpose so the floating controls read as one set */
+/* Hallmark · answered F4 · the filled chips are toggle states (active rail tool, active language) and the play control, not competing primary actions; .btn is the one action style in panels */
+/* Hallmark · dismissed 28a · the lazy image is the GIBS legend inside a closed panel, not the largest paint */
 /* Hallmark · dismissed 77 · the user asked for a single screen with no scrolling; the globe page carries everything else */
 /* Hallmark · dismissed 41 · .hero__film, .hero__video and .hero__grade hold footage and a colour grade, no text; .hero sets Star ink */
 /* Hallmark · user-pinned deviations from the floor: 67 (14px uppercase button and switch labels) follows DESIGN.md, which the user supplied */
@@ -21,7 +23,32 @@
   --color-star-muted: color-mix(in oklab, var(--color-star) 74%, transparent);
   --color-star-rule: color-mix(in oklab, var(--color-star) 42%, transparent);
   --color-glass: color-mix(in oklab, var(--color-navy) 55%, transparent);
+  /* Studio controls over the globe: solid enough that imagery never shows through them. */
+  --color-panel: color-mix(in oklab, var(--color-navy) 95%, transparent);
+  --color-control: var(--color-navy-2);
+  --color-control-hover: var(--color-navy-3);
+  --color-control-line: color-mix(in oklab, var(--color-star) 34%, transparent);
   --color-focus: var(--color-sunrise);
+
+  /* Chart series and the significance light */
+  --color-series-a: #f3bd6e;
+  --color-series-b: #8fbcff;
+  --color-good: #63d197;
+  --color-warn: #f3bd6e;
+
+  /* Ukraine war layer */
+  --color-occupied: #e0533f;
+  --color-combat: #f39a3e;
+  --color-fire: #ffe44d;
+  /* Ordinal year ramps for the seasonal chart (validated on the navy surface): older dimmer, newer brighter. */
+  --color-year-a-1: #8a6a3c;
+  --color-year-a-2: #b38a4f;
+  --color-year-a-3: #d9a75e;
+  --color-year-a-4: #f6c878;
+  --color-year-b-1: #4d6c9c;
+  --color-year-b-2: #6a8dc6;
+  --color-year-b-3: #86aaeb;
+  --color-year-b-4: #a8c8ff;
 
   /* Colours read by the WebGL globe */
   --color-atmosphere: #7fb0ff;

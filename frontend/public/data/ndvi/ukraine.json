@@ -1,0 +1,19 @@
+{
+ "source": "NASA MODIS/Terra MOD13C2 v061, CMG 0.05 deg monthly NDVI (LP DAAC)",
+ "url": "https://lpdaac.usgs.gov/products/mod13c2v061/",
+ "unit": "NDVI",
+ "scale": 0.0001,
+ "noData": -32768,
+ "box": {
+  "s": 44.0,
+  "n": 53.0,
+  "w": 22.0,
+  "e": 41.0
+ },
+ "step": 0.25,
+ "rows": 36,
+ "cols": 76,
+ "start": "2000-03",
+ "months": 320,
+ "built": "2026-11-11"
+}
