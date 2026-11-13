@@ -1381,10 +1381,73 @@ p {
 }
 
 .region {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.region__row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: 40px;
+}
+
+.region__country {
+  min-height: 34px;
+  margin-left: calc(22px + var(--space-2));
+  width: calc(100% - 22px - var(--space-2));
+  font-size: 13px;
+}
+
+.drawer__row--pick {
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.drawer__tabs {
+  position: sticky;
+  top: calc(-1 * var(--space-4));
+  z-index: 1;
+  background: var(--color-panel);
+}
+
+.verdict__why {
+  margin-left: auto;
+}
+
+/* Drag the drawer's left edge to resize it */
+.drawer__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  z-index: 2;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.drawer__resize::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: var(--color-star-rule);
+  transform: translateY(-50%);
+  transition: background-color var(--dur-chip) var(--ease-chip);
+}
+
+.drawer__resize:hover::after,
+.drawer__resize:focus-visible::after {
+  background: var(--color-sunrise);
+}
+
+.drawer__resize:focus-visible {
+  outline: none;
 }
 
 .region__pin {
@@ -2024,6 +2087,10 @@ p {
 /* ---------- Readout and markers ---------- */
 
 .readout-chip {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  max-width: calc(100% - 2 * var(--gutter));
   position: absolute;
   bottom: calc(var(--gutter) + var(--timeline-real, var(--timeline-h)) + var(--space-3));
   left: 50%;
@@ -2048,32 +2115,63 @@ p {
   transform: translateY(-50%);
 }
 
-/* Hints about anomalies, shown when zoomed in */
+/* Hints about anomalies, shown when zoomed in: a map pin whose tip marks the place */
 .globe__hint {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  max-width: 260px;
-  padding: var(--space-1);
-  border: 1px solid color-mix(in oklab, var(--color-warn) 70%, transparent);
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--color-navy) 88%, transparent);
+  align-items: flex-end;
+  gap: var(--space-1);
+  max-width: 280px;
+  margin-left: -11px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--color-star);
   font: 500 13px / 1.2 var(--font-body);
   text-align: left;
   cursor: pointer;
   pointer-events: auto;
-  transform: translateY(-50%);
-  transition: background-color var(--dur-chip) var(--ease-chip);
 }
 
-.globe__hint:hover {
-  padding-right: var(--space-3);
-  background: var(--color-navy-2);
+.globe__hint-icon {
+  display: block;
+  flex: none;
+  width: 22px;
+  height: 29px;
+  filter: drop-shadow(0 1px 2px var(--color-void));
+  transition: transform var(--dur-chip) var(--ease-chip);
+  transform-origin: 50% 90%;
+}
+
+.globe__hint-icon svg {
+  display: block;
+}
+
+.globe__pin-body {
+  fill: var(--color-pin);
+  stroke: var(--color-pin-deep);
+  stroke-width: 1;
+}
+
+.globe__pin-eye {
+  fill: var(--color-pin-eye);
+}
+
+.globe__pin-shadow {
+  fill: var(--color-pin-shadow);
+  opacity: 0.85;
+}
+
+.globe__hint:hover .globe__hint-icon,
+.globe__hint:focus-visible .globe__hint-icon {
+  transform: scale(1.15);
 }
 
 .globe__hint-text {
   display: none;
+  margin-bottom: 10px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-chip);
+  background: color-mix(in oklab, var(--color-navy) 92%, transparent);
 }
 
 .globe__hint:hover .globe__hint-text,
@@ -2082,22 +2180,66 @@ p {
 }
 
 .globe__hint:focus-visible {
-  padding-right: var(--space-3);
+  outline: none;
 }
 
-.globe__hint:focus-visible {
+.globe__hint:focus-visible .globe__hint-text {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
-.globe__hint-icon {
-  display: grid;
+/* Capitals, seas and rivers (Natural Earth) */
+.globe__place {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  text-shadow:
+    0 0 3px var(--color-void),
+    0 0 8px var(--color-void);
+}
+
+.globe__place--capital {
+  gap: 4px;
+  margin-left: -3px;
+  color: var(--color-star);
+  font: 500 11px / 1 var(--font-body);
+}
+
+/* A small solid dot on the city, ringed in Void so it reads on land, sea and data layers */
+.globe__place-dot {
   flex: none;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  color: var(--color-warn);
-  font-weight: 800;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-star);
+  box-shadow: 0 0 0 1.5px var(--color-void);
+}
+
+.globe__place--dot-only .globe__place-name {
+  visibility: hidden;
+}
+
+.globe__place--sea {
+  color: var(--color-sea-label);
+  font: italic 400 11px / 1 var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.globe__place--bigsea {
+  font-size: 13px;
+}
+
+.globe__place--ocean {
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.globe__place--river {
+  color: var(--color-river-label);
+  font: italic 400 11px / 1 var(--font-display);
 }
 
 /* The hint card */
@@ -2174,6 +2316,613 @@ p {
   white-space: nowrap;
 }
 
+/* ---------- Layers: map labels ---------- */
+.sublayers {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: calc(-1 * var(--space-2));
+  padding-left: 52px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-star);
+}
+
+.check__swatch {
+  flex: none;
+  width: 16px;
+  height: 10px;
+}
+
+.check__swatch--capitals {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--color-star);
+  border-radius: 50%;
+}
+
+.check__swatch--seas {
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--color-sea-label) 45%, transparent);
+}
+
+.check__swatch--rivers {
+  height: 2px;
+  background: var(--color-river);
+}
+
+/* ---------- Chart: zoom, navigator, full screen ---------- */
+.chart__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chart__window {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-haze);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart__tool {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-control-line);
+  border-radius: var(--radius-chip);
+  background: var(--color-control);
+  color: var(--color-star);
+  font: 500 16px / 1 var(--font-body);
+  cursor: pointer;
+}
+
+.chart__tool--text {
+  font-size: 12px;
+}
+
+.chart__tool:hover:not(:disabled) {
+  background: var(--color-control-hover);
+}
+
+.chart__tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chart__tool:focus-visible,
+.chart__svg--zoom:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.chart__svg--zoom {
+  cursor: grab;
+  touch-action: none;
+}
+
+.chart__svg--zoom:active {
+  cursor: grabbing;
+}
+
+.chart__line--thin {
+  stroke-width: 1;
+}
+
+.chart__pt {
+  stroke: none;
+}
+
+.chart__pt--a {
+  fill: var(--color-series-a);
+}
+
+.chart__pt--b {
+  fill: var(--color-series-b);
+}
+
+.chart__nav {
+  display: block;
+  max-width: 100%;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.chart__nav-bg {
+  fill: color-mix(in oklab, var(--color-star) 4%, transparent);
+}
+
+.chart__nav-line {
+  fill: none;
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.chart__nav-shade {
+  fill: var(--color-void);
+  opacity: 0.55;
+}
+
+.chart__nav-window {
+  fill: none;
+  stroke: var(--color-star-muted);
+  stroke-width: 1;
+  cursor: grab;
+}
+
+.chart__nav-grip {
+  fill: var(--color-star);
+  cursor: ew-resize;
+}
+
+.chart-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: color-mix(in oklab, var(--color-void) 72%, transparent);
+  color: var(--color-star);
+  font-family: var(--font-body);
+}
+
+.chart--expanded {
+  width: min(1400px, 100%);
+  height: min(860px, 100%);
+  padding: var(--space-4);
+  border: 1px solid var(--color-control-line);
+  border-radius: var(--radius-chip);
+  background: var(--color-panel);
+  align-content: start;
+}
+
+/* ---------- How it is computed ---------- */
+.methods {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.method-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-star-rule);
+  border-radius: var(--radius-chip);
+  scroll-margin-top: 56px;
+}
+
+.method-card__title {
+  margin: 0;
+  font: 400 18px / 1.25 var(--font-display);
+}
+
+.method-card__where {
+  margin: 0;
+  color: var(--color-haze);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.method-card__tag {
+  margin-right: var(--space-1);
+  padding: 1px 6px;
+  border: 1px solid var(--color-star-rule);
+  border-radius: var(--radius-chip);
+  color: var(--color-star-deep);
+  font-size: 11px;
+}
+
+.method-card__idea p,
+.method-card__steps {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.method-card__steps {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-left: 1.3em;
+  font-size: 13px;
+}
+
+.formula {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-left: 2px solid var(--color-sunrise);
+  background: color-mix(in oklab, var(--color-star) 5%, transparent);
+  font: italic 400 17px / 1.6 var(--font-display);
+  overflow-x: auto;
+}
+
+.formula > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 0.3em;
+  white-space: nowrap;
+}
+
+.formula sub,
+.formula sup {
+  font-size: 0.68em;
+}
+
+.frac {
+  display: inline-grid;
+  justify-items: center;
+  vertical-align: middle;
+  margin: 0 0.15em;
+}
+
+.frac__top {
+  padding: 0 0.2em;
+  border-bottom: 1px solid currentColor;
+}
+
+.frac__bottom {
+  padding: 0 0.2em;
+}
+
+.bigsum {
+  display: inline-grid;
+  justify-items: center;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.bigsum__sign {
+  font-size: 1.5em;
+  font-style: normal;
+}
+
+.bigsum__sub,
+.bigsum__sup {
+  font-size: 0.62em;
+}
+
+.formula__over {
+  padding: 0 0.15em;
+  border-top: 1px solid currentColor;
+}
+
+.yours {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-chip);
+  background: var(--color-navy-2);
+}
+
+.yours__title {
+  margin: 0;
+  color: var(--color-star-deep);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.yours__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.yours__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.yours__row dt {
+  color: var(--color-haze);
+}
+
+.yours__row dd {
+  margin: 0;
+  text-align: right;
+}
+
+.yours__plain {
+  margin: 0;
+  color: var(--color-star-deep);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.yours__verdict {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+}
+
+.yours__verdict--significant {
+  color: var(--color-good);
+}
+
+.yours__verdict--weak {
+  color: var(--color-warn);
+}
+
+.pairs {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.pairs__bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-navy-3);
+}
+
+.pairs__up,
+.pairs__key--up {
+  background: var(--color-good);
+}
+
+.pairs__down,
+.pairs__key--down {
+  background: var(--color-pairs-down);
+}
+
+.pairs__tie,
+.pairs__key--tie {
+  background: var(--color-haze);
+}
+
+.pairs__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--color-star-deep);
+  font-size: 12px;
+}
+
+.pairs__key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+/* ---------- External tools ---------- */
+.tools__group {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.tools__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tools__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.tools__list a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+/* ---------- Weather ---------- */
+.weather {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.weather__place {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.weather__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 16px;
+}
+
+.weather__pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.weather__pick .field__input {
+  flex: 1 1 160px;
+  width: auto;
+}
+
+.weather__block {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-star-rule);
+}
+
+.weather__title {
+  margin: 0;
+  font: 400 18px / 1.2 var(--font-display);
+}
+
+.forecast {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.forecast__day {
+  display: grid;
+  grid-template-columns: 76px 24px 64px 1fr;
+  grid-template-areas:
+    'date icon temp rain'
+    '. . . extra';
+  align-items: center;
+  column-gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-chip);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast__day:nth-child(odd) {
+  background: color-mix(in oklab, var(--color-star) 4%, transparent);
+}
+
+.forecast__day--storm {
+  box-shadow: inset 2px 0 0 var(--color-sunrise);
+}
+
+.forecast__date {
+  grid-area: date;
+  color: var(--color-star-deep);
+}
+
+.forecast__icon {
+  grid-area: icon;
+  display: grid;
+  place-items: center;
+}
+
+.forecast__temp {
+  grid-area: temp;
+}
+
+.forecast__min {
+  color: var(--color-haze);
+}
+
+.forecast__rain {
+  grid-area: rain;
+}
+
+.forecast__extra {
+  grid-area: extra;
+  color: var(--color-haze);
+  font-size: 12px;
+}
+
+.forecast__storm {
+  color: var(--color-sunrise);
+  font-weight: 600;
+}
+
+.outlooks {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.outlook {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-chip);
+  background: color-mix(in oklab, var(--color-star) 4%, transparent);
+}
+
+.outlook--risk {
+  box-shadow: inset 2px 0 0 var(--color-pin);
+  background: color-mix(in oklab, var(--color-pin) 12%, transparent);
+}
+
+.outlook__day {
+  color: var(--color-star-deep);
+  font-weight: 500;
+}
+
+.outlook__until {
+  color: var(--color-haze);
+}
+
+.climate {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.climate th,
+.climate td {
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-star) 12%, transparent);
+  text-align: right;
+  vertical-align: top;
+}
+
+.climate thead th {
+  color: var(--color-haze);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.climate tbody th {
+  font-weight: 400;
+  text-align: left;
+}
+
+.climate__trend {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-haze);
+  font-size: 11px;
+}
+
+.climate__trend--significant {
+  color: var(--color-sunrise);
+}
+
+.climate__days {
+  display: block;
+  color: var(--color-haze);
+  font-size: 11px;
+}
+
+.readout-chip__climate {
+  color: var(--color-star-deep);
+  font-size: 12px;
+  white-space: normal;
+  text-align: center;
+}
+
 /* ---------- Studio on small screens ---------- */
 
 @media (max-width: 900px) {
@@ -2219,6 +2968,14 @@ p {
 
   .readout-chip {
     bottom: calc(var(--gutter) + 72px + var(--timeline-h) + var(--space-2));
+  }
+
+  .drawer__resize {
+    display: none;
+  }
+
+  .drawer[style] {
+    width: auto !important;
   }
 }
 

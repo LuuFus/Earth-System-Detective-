@@ -16,6 +16,7 @@ export function Rail({ panel, analysisOpen, onPanel, onAnalysis }: Props) {
     { id: 'layers', icon: 'layers', label: s.rail.layers },
     { id: 'cases', icon: 'cases', label: s.rail.cases },
     { id: 'analysis', icon: 'analysis', label: s.rail.analysis },
+    { id: 'weather', icon: 'weather', label: s.rail.weather },
     { id: 'glossary', icon: 'glossary', label: s.rail.glossary },
     { id: 'share', icon: 'share', label: s.rail.share },
   ];

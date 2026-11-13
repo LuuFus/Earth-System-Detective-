@@ -1,4 +1,5 @@
 import type { Region } from '../analysis/series';
+import { countryName } from '../data/geo';
 import type { Lang } from './strings';
 
 export function numberFormat(lang: Lang, digits: number, signed = true) {
@@ -35,6 +36,7 @@ export function formatP(p: number, lang: Lang): string {
 }
 
 export function regionName(region: Region, lang: Lang): string {
+  if (region.kind === 'country') return countryName(region.code, lang, region.name);
   if (region.name) return region.name[lang];
   if (region.kind === 'point') return formatPoint(region.lat, region.lon, lang);
   return lang === 'uk' ? 'Регіон' : 'Region';

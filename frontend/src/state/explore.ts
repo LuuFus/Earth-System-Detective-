@@ -2,10 +2,17 @@
 
 import type { Region, Season } from '../analysis/series';
 import { cases, type Case, type GistempMode } from '../data/cases';
+import { countries } from '../data/countries';
 import { variableById, type VariableId } from '../data/variables';
 
-export type Panel = 'layers' | 'cases' | 'glossary' | 'share';
+export type Panel = 'layers' | 'cases' | 'weather' | 'glossary' | 'share';
 export type Slot = 'A' | 'B';
+/** How the chart shows time: yearly values, monthly, daily, or the seasonal cycle. */
+export type ChartView = 'year' | 'month' | 'day' | 'cycle';
+/** What a click on the globe picks for a region: the point (with a radius) or the whole country. */
+export type PickMode = 'point' | 'country';
+export type LabelLayers = { capitals: boolean; seas: boolean; rivers: boolean };
+export type WeatherPlace = { lat: number; lon: number; name?: { uk: string; en: string } };
 
 export type ExploreState = {
   /** Layer on the globe; null shows the plain Earth. */
@@ -19,6 +26,8 @@ export type ExploreState = {
   to: number;
   season: Season;
   borders: boolean;
+  /** Capitals, seas and rivers, shown with the borders. */
+  labels: LabelLayers;
   /** Ukraine war layer (official list of occupied territories and hostilities). */
   war: boolean;
   regionA: Region | null;
@@ -26,6 +35,10 @@ export type ExploreState = {
   /** The next click on the globe sets this region. */
   picking: Slot | null;
   radiusKm: number;
+  pickMode: PickMode;
+  chartView: ChartView;
+  /** Place for the weather panel: the last place clicked or searched. */
+  weatherAt: WeatherPlace;
   /** Variable for the chart when it differs from the map. */
   chartVariable: VariableId;
   caseId: string | null;
@@ -46,11 +59,15 @@ export const initialState: ExploreState = {
   to: 2025,
   season: 'year',
   borders: false,
+  labels: { capitals: true, seas: true, rivers: true },
   war: false,
   regionA: null,
   regionB: null,
   picking: null,
   radiusKm: 250,
+  pickMode: 'point',
+  chartView: 'year',
+  weatherAt: { lat: 50.45, lon: 30.52, name: { uk: 'Київ', en: 'Kyiv' } },
   chartVariable: 'gistemp',
   caseId: null,
   panel: null,
@@ -68,6 +85,10 @@ export type Action =
   | { type: 'period'; from: number; to: number }
   | { type: 'season'; season: Season }
   | { type: 'borders'; on: boolean }
+  | { type: 'labels'; labels: Partial<LabelLayers> }
+  | { type: 'pickMode'; mode: PickMode }
+  | { type: 'chartView'; view: ChartView }
+  | { type: 'weatherAt'; place: WeatherPlace }
   | { type: 'war'; on: boolean }
   | { type: 'region'; slot: Slot; region: Region | null }
   | { type: 'picking'; slot: Slot | null }
@@ -119,6 +140,14 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
       return { ...state, season: action.season };
     case 'borders':
       return { ...state, borders: action.on };
+    case 'labels':
+      return { ...state, labels: { ...state.labels, ...action.labels } };
+    case 'pickMode':
+      return { ...state, pickMode: action.mode };
+    case 'chartView':
+      return { ...state, chartView: action.view };
+    case 'weatherAt':
+      return { ...state, weatherAt: action.place };
     case 'war':
       return { ...state, war: action.on };
     case 'region':
@@ -135,8 +164,12 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
       const resize = (r: Region | null): Region | null => (r?.kind === 'point' && !r.name ? { ...r, radiusKm: action.km } : r);
       return { ...state, radiusKm: action.km, regionA: resize(state.regionA), regionB: resize(state.regionB) };
     }
-    case 'chartVariable':
-      return { ...state, chartVariable: action.id };
+    case 'chartVariable': {
+      // Days exist only for NASA POWER variables, months only for monthly sources.
+      const kind = variableById[action.id].series?.kind;
+      const view = state.chartView === 'day' && kind !== 'power' ? 'year' : (state.chartView === 'month' || state.chartView === 'cycle') && kind !== 'power' && kind !== 'grid' ? 'year' : state.chartView;
+      return { ...state, chartVariable: action.id, chartView: view };
+    }
     case 'panel':
       return { ...state, panel: action.panel };
     case 'analysis':
@@ -160,6 +193,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         regionA: c.regionA ?? null,
         regionB: c.regionB ?? null,
         chartVariable: c.analysisVariable ?? chartFor(c.variable, state.chartVariable),
+        chartView: 'year',
         caseId: c.id,
         picking: null,
         analysisOpen: true,
@@ -176,6 +210,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
 
 function encodeRegion(r: Region | null): string | null {
   if (!r) return null;
+  if (r.kind === 'country') return `c:${r.code}`;
   if (r.kind === 'point') return `p:${r.lat.toFixed(3)},${r.lon.toFixed(3)},${r.radiusKm}`;
   return `b:${r.s},${r.w},${r.n},${r.e}`;
 }
@@ -183,6 +218,11 @@ function encodeRegion(r: Region | null): string | null {
 function decodeRegion(s: string | null): Region | null {
   if (!s) return null;
   const [kind, rest] = s.split(':');
+  if (kind === 'c') {
+    // The box is filled in from the Natural Earth outlines once they load.
+    const c = countries.find((x) => x.code === rest);
+    return c ? { kind: 'country', code: c.code, lat: c.lat, lon: c.lon, box: { s: c.lat - 4, n: c.lat + 4, w: c.lon - 6, e: c.lon + 6 } } : null;
+  }
   const n = (rest ?? '').split(',').map(Number);
   if (n.some((x) => !Number.isFinite(x))) return null;
   if (kind === 'p' && n.length === 3) return { kind: 'point', lat: n[0], lon: n[1], radiusKm: n[2] };
@@ -208,6 +248,7 @@ export function toQuery(state: ExploreState, view: CameraView | null): string {
   if (a) q.set('a', a);
   if (b) q.set('bb', b);
   if (state.chartVariable !== 'gistemp') q.set('cv', state.chartVariable);
+  if (state.chartView !== 'year') q.set('cr', state.chartView);
   if (state.compare !== null) q.set('cmp', String(state.compare));
   if (view) q.set('cam', `${view.lat.toFixed(2)},${view.lon.toFixed(2)},${view.distance.toFixed(2)}`);
   return q.toString();
@@ -242,6 +283,8 @@ export function fromQuery(search: string): { state: Partial<ExploreState>; view:
   if (b) state.regionB = b;
   const cv = q.get('cv');
   if (cv && cv in variableById && variableById[cv as VariableId].series) state.chartVariable = cv as VariableId;
+  const cr = q.get('cr');
+  if (cr === 'month' || cr === 'day' || cr === 'cycle') state.chartView = cr;
   const cmp = Number(q.get('cmp'));
   if (cmp > 1800 && cmp < 2100) state.compare = cmp;
   const cam = (q.get('cam') ?? '').split(',').map(Number);

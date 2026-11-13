@@ -8,6 +8,7 @@ import { RANGE } from '../../hooks/useClimateLayer';
 import { useI18n } from '../../i18n/I18n';
 import { numberFormat } from '../../i18n/format';
 import { useStudio } from '../../i18n/useStudio';
+import type { LabelLayers } from '../../state/explore';
 import { Icon } from './Icon';
 
 export function Flyout({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -31,6 +32,7 @@ type LayersProps = {
   variable: VariableId | null;
   mode: GistempMode;
   borders: boolean;
+  labels: LabelLayers;
   year: number;
   month: number;
   from: number;
@@ -42,6 +44,7 @@ type LayersProps = {
   onVariable: (id: VariableId | null) => void;
   onMode: (mode: GistempMode) => void;
   onBorders: (on: boolean) => void;
+  onLabels: (labels: Partial<LabelLayers>) => void;
   onWar: (on: boolean) => void;
 };
 
@@ -58,6 +61,22 @@ export function LayersPanel(p: LayersProps) {
         <span className="switch__track" aria-hidden="true" />
         <span className="switch__text">{s.layers.borders}</span>
       </label>
+      {p.borders && (
+        <div className="sublayers">
+          {(['capitals', 'seas', 'rivers'] as const).map((k) => (
+            <label key={k} className="check">
+              <input type="checkbox" checked={p.labels[k]} onChange={(e) => p.onLabels({ [k]: e.target.checked })} />
+              <span className={`check__swatch check__swatch--${k}`} aria-hidden="true" />
+              <span>{s.layers[k]}</span>
+            </label>
+          ))}
+          <p className="legend__src">
+            <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">
+              {s.layers.geoSource}
+            </a>
+          </p>
+        </div>
+      )}
 
       <label className="switch">
         <input type="checkbox" checked={p.war} onChange={(e) => p.onWar(e.target.checked)} />

@@ -50,6 +50,17 @@
   --color-year-b-3: #86aaeb;
   --color-year-b-4: #a8c8ff;
 
+  /* Map labels and pins (Natural Earth layers, anomaly hints) */
+  --color-border: #eef2fb;
+  --color-river: #6fb8ff;
+  --color-river-label: #9fd0ff;
+  --color-sea-label: #b9d8ff;
+  --color-pin: #e5483b;
+  --color-pin-deep: #a8291f;
+  --color-pin-eye: #dde2ea;
+  --color-pin-shadow: #8b93a3;
+  --color-pairs-down: #8fbcff;
+
   /* Colours read by the WebGL globe */
   --color-atmosphere: #7fb0ff;
   --color-stars: #dfe7fb;

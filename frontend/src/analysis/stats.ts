@@ -1,11 +1,23 @@
 // Trend statistics for a yearly series: Theil-Sen slope with its confidence interval,
 // the Mann-Kendall test, ordinary least squares with a t-test, and the Weatherhead et al.
-// (1998) estimate of how many years a trend needs before it can be detected.
+// (1998) estimate of how many years a trend needs before it can be detected. Monthly series
+// use the seasonal Mann-Kendall test (Hirsch, Slack and Smith 1982).
 
 export type Point = { x: number; y: number };
 
 export type TrendStats = {
+  /** Number of values tested (years, or months for the seasonal test). */
   n: number;
+  /** Years the values span: the verdict needs at least MIN_YEARS of them. */
+  years: number;
+  /** Seasonal Mann-Kendall: each month compared only with the same month of other years. */
+  seasonal: boolean;
+  /** Pairs the Mann-Kendall test compared: the later value higher, lower, or equal. */
+  pairsUp: number;
+  pairsDown: number;
+  pairsTie: number;
+  /** Variance of S (tie-corrected), kept so the explanation can show the arithmetic. */
+  varS: number;
   /** Theil-Sen slope, units per year. */
   sen: number;
   senIntercept: number;
@@ -113,20 +125,19 @@ function median(sorted: number[]): number {
   return n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
 }
 
-export function trendStats(points: Point[]): TrendStats | null {
-  const pts = points.filter((p) => Number.isFinite(p.y));
-  const n = pts.length;
-  if (n < 3) return null;
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
-
-  // Mann-Kendall and pairwise slopes
-  let s = 0;
+/** Mann-Kendall S over values in time order, its tie-corrected variance, and every pairwise slope. */
+function kendall(xs: number[], ys: number[]) {
+  const n = xs.length;
+  let up = 0;
+  let down = 0;
+  let tie = 0;
   const slopes: number[] = [];
   for (let i = 0; i < n - 1; i++) {
     for (let j = i + 1; j < n; j++) {
       const d = ys[j] - ys[i];
-      s += d > 0 ? 1 : d < 0 ? -1 : 0;
+      if (d > 0) up++;
+      else if (d < 0) down++;
+      else tie++;
       slopes.push(d / (xs[j] - xs[i]));
     }
   }
@@ -137,21 +148,35 @@ export function trendStats(points: Point[]): TrendStats | null {
     if (t > 1) ties += t * (t - 1) * (2 * t + 5);
   });
   const varS = (n * (n - 1) * (2 * n + 5) - ties) / 18;
-  const mkZ = s > 0 ? (s - 1) / Math.sqrt(varS) : s < 0 ? (s + 1) / Math.sqrt(varS) : 0;
-  const mkP = 2 * (1 - normalCdf(Math.abs(mkZ)));
+  return { s: up - down, varS, up, down, tie, slopes };
+}
 
-  slopes.sort((a, b) => a - b);
-  const sen = median(slopes);
-  const senIntercept = median(xs.map((x, i) => ys[i] - sen * x).sort((a, b) => a - b));
-  // Gilbert (1987): ranks of the slope CI from the MK variance.
-  const nSlopes = slopes.length;
+/** z with the continuity correction, and its two-sided p-value. */
+function kendallTest(s: number, varS: number) {
+  const sd = Math.sqrt(varS);
+  const mkZ = sd > 0 ? (s > 0 ? (s - 1) / sd : s < 0 ? (s + 1) / sd : 0) : 0;
+  return { mkZ, mkP: 2 * (1 - normalCdf(Math.abs(mkZ))) };
+}
+
+/** Gilbert (1987): the 95% interval of the Theil-Sen slope from ranks given by the MK variance. */
+function senInterval(sorted: number[], varS: number): [number, number] {
+  const count = sorted.length;
   const cAlpha = Z975 * Math.sqrt(varS);
-  const m1 = Math.round((nSlopes - cAlpha) / 2);
-  const m2 = Math.round((nSlopes + cAlpha) / 2) + 1;
-  const senLow = slopes[Math.min(nSlopes - 1, Math.max(0, m1 - 1))];
-  const senHigh = slopes[Math.min(nSlopes - 1, Math.max(0, m2 - 1))];
+  const m1 = Math.round((count - cAlpha) / 2);
+  const m2 = Math.round((count + cAlpha) / 2) + 1;
+  return [sorted[Math.min(count - 1, Math.max(0, m1 - 1))], sorted[Math.min(count - 1, Math.max(0, m2 - 1))]];
+}
 
-  // Least squares and t-test
+/** Weatherhead et al. (1998): n* = [3.3 sigma / |omega| * sqrt((1 + phi) / (1 - phi))]^(2/3) years. */
+function weatherhead(sigma: number, perYear: number, phi: number): number | null {
+  if (!(Math.abs(perYear) > 0)) return null;
+  const v = Math.pow(((3.3 * sigma) / Math.abs(perYear)) * Math.sqrt((1 + phi) / (1 - phi)), 2 / 3);
+  return Number.isFinite(v) ? v : null;
+}
+
+/** Least squares with a t-test, the residual noise and its lag-1 autocorrelation. */
+function leastSquares(xs: number[], ys: number[]) {
+  const n = xs.length;
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = ys.reduce((a, b) => a + b, 0) / n;
   let sxx = 0;
@@ -171,8 +196,6 @@ export function trendStats(points: Point[]): TrendStats | null {
   const olsT = olsSlope / se;
   const olsP = studentTwoSided(olsT, df);
   const r2 = syy > 0 ? 1 - sse / syy : 0;
-
-  // Residual noise and lag-1 autocorrelation
   const residualSd = Math.sqrt(sse / df);
   let num = 0;
   let den = 0;
@@ -181,13 +204,97 @@ export function trendStats(points: Point[]): TrendStats | null {
     if (i > 0) num += residuals[i] * residuals[i - 1];
   }
   const phi = den > 0 ? Math.max(-0.95, Math.min(0.95, num / den)) : 0;
+  return { olsSlope, olsIntercept, olsT, olsP, r2, phi, residualSd, xMean: mx, sxx };
+}
 
-  // Weatherhead et al. (1998): n* = [3.3 sigma / |omega| * sqrt((1 + phi) / (1 - phi))]^(2/3)
-  const yearsNeeded =
-    Math.abs(sen) > 0 ? Math.pow(((3.3 * residualSd) / Math.abs(sen)) * Math.sqrt((1 + phi) / (1 - phi)), 2 / 3) : null;
-
+export function trendStats(points: Point[]): TrendStats | null {
+  const pts = points.filter((p) => Number.isFinite(p.y));
+  const n = pts.length;
+  if (n < 3) return null;
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const mk = kendall(xs, ys);
+  const { mkZ, mkP } = kendallTest(mk.s, mk.varS);
+  const slopes = mk.slopes.sort((a, b) => a - b);
+  const sen = median(slopes);
+  const senIntercept = median(xs.map((x, i) => ys[i] - sen * x).sort((a, b) => a - b));
+  const [senLow, senHigh] = senInterval(slopes, mk.varS);
+  const ls = leastSquares(xs, ys);
   return {
     n,
+    years: n,
+    seasonal: false,
+    pairsUp: mk.up,
+    pairsDown: mk.down,
+    pairsTie: mk.tie,
+    varS: mk.varS,
+    sen,
+    senIntercept,
+    senLow,
+    senHigh,
+    mkS: mk.s,
+    mkZ,
+    mkP,
+    ...ls,
+    yearsNeeded: weatherhead(ls.residualSd, sen, ls.phi),
+  };
+}
+
+/**
+ * Seasonal Mann-Kendall test (Hirsch, Slack and Smith 1982) for monthly values: each month is
+ * compared only with the same month of other years, so the seasonal cycle does not count as a
+ * trend. S and its variance are sums over the months; the slope is the median of the
+ * same-month slopes (the seasonal Kendall slope). Least squares and the noise use the values
+ * with each month's own mean taken away.
+ */
+export function seasonalTrendStats(points: (Point & { season: number })[]): TrendStats | null {
+  const pts = points.filter((p) => Number.isFinite(p.y)).sort((a, b) => a.x - b.x);
+  if (pts.length < 6) return null;
+  const bySeason = new Map<number, Point[]>();
+  for (const p of pts) {
+    const list = bySeason.get(p.season) ?? [];
+    list.push(p);
+    bySeason.set(p.season, list);
+  }
+  let s = 0;
+  let varS = 0;
+  let up = 0;
+  let down = 0;
+  let tie = 0;
+  const slopes: number[] = [];
+  const mean = new Map<number, number>();
+  bySeason.forEach((list, season) => {
+    mean.set(season, list.reduce((a, p) => a + p.y, 0) / list.length);
+    if (list.length < 2) return;
+    const k = kendall(
+      list.map((p) => p.x),
+      list.map((p) => p.y),
+    );
+    s += k.s;
+    varS += k.varS;
+    up += k.up;
+    down += k.down;
+    tie += k.tie;
+    for (const v of k.slopes) slopes.push(v);
+  });
+  if (!slopes.length) return null;
+  const { mkZ, mkP } = kendallTest(s, varS);
+  slopes.sort((a, b) => a - b);
+  const sen = median(slopes);
+  const xs = pts.map((p) => p.x);
+  const level = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+  const anomalies = pts.map((p) => p.y - mean.get(p.season)! + level);
+  const senIntercept = median(xs.map((x, i) => anomalies[i] - sen * x).sort((a, b) => a - b));
+  const [senLow, senHigh] = senInterval(slopes, varS);
+  const ls = leastSquares(xs, anomalies);
+  return {
+    n: pts.length,
+    years: Math.floor(xs[xs.length - 1]) - Math.floor(xs[0]) + 1,
+    seasonal: true,
+    pairsUp: up,
+    pairsDown: down,
+    pairsTie: tie,
+    varS,
     sen,
     senIntercept,
     senLow,
@@ -195,30 +302,23 @@ export function trendStats(points: Point[]): TrendStats | null {
     mkS: s,
     mkZ,
     mkP,
-    olsSlope,
-    olsIntercept,
-    olsT,
-    olsP,
-    r2,
-    phi,
-    residualSd,
-    xMean: mx,
-    sxx,
-    yearsNeeded: yearsNeeded !== null && Number.isFinite(yearsNeeded) ? yearsNeeded : null,
+    ...ls,
+    // Weatherhead's formula is written for monthly noise and a trend per year.
+    yearsNeeded: weatherhead(ls.residualSd, sen, ls.phi),
   };
 }
 
 export function verdict(stats: TrendStats | null): Verdict {
-  if (!stats || stats.n < MIN_YEARS) return 'insufficient';
+  if (!stats || stats.years < MIN_YEARS) return 'insufficient';
   return stats.mkP < ALPHA ? 'significant' : 'weak';
 }
 
 /** Years still missing before the trend is likely detectable, if it carries on as it is. */
 export function yearsStillNeeded(stats: TrendStats | null): number | null {
   if (!stats) return null;
-  const forTest = Math.max(0, MIN_YEARS - stats.n);
+  const forTest = Math.max(0, MIN_YEARS - stats.years);
   if (stats.yearsNeeded === null) return forTest || null;
-  return Math.max(forTest, Math.ceil(stats.yearsNeeded - stats.n));
+  return Math.max(forTest, Math.ceil(stats.yearsNeeded - stats.years));
 }
 
 /** Student t quantile: the t with two-sided p-value `p` (bisection on the exact distribution). */

@@ -1,27 +1,30 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { regionBox, regionCentre } from '../analysis/series';
+import { countryRegion, regionBox, regionCentre, type Region } from '../analysis/series';
 import { CountrySearch } from '../components/CountrySearch';
-import { Globe, type GlobeApi, type GlobeCompare, type GlobeHint, type GlobeMarker, type GlobePoint, type GlobeVector, type GlobeView } from '../components/Globe';
+import { Globe, type GlobeApi, type GlobeCompare, type GlobeHint, type GlobeMarker, type GlobeOutline, type GlobePoint, type GlobeVector, type GlobeView } from '../components/Globe';
 import { gapFilledSource, wmsSource, wmtsSource } from '../components/globe/tiles';
 import { AnalysisDrawer } from '../components/studio/AnalysisDrawer';
 import { HintCard } from '../components/studio/HintCard';
 import { CasesPanel, Flyout, GlossaryPanel, LayersPanel, SharePanel } from '../components/studio/Panels';
 import { Rail } from '../components/studio/Rail';
 import { Timeline } from '../components/studio/Timeline';
+import { WeatherPanel } from '../components/studio/WeatherPanel';
 import { TopBar } from '../components/TopBar';
 import { cases, type Case } from '../data/cases';
 import type { Country } from '../data/countries';
 import { eventsFor } from '../data/events';
+import { countryAt, countryName, loadBorders, loadCountries, loadLabels, type GeoBorders, type GeoCountry, type GeoLabels } from '../data/geo';
 import { hintById, hints } from '../data/hints';
 import { cellIndex } from '../data/gistemp';
 import { imageryDate, imageryYears, variableById } from '../data/variables';
 import { drawWar, loadWar, WAR_BOX, type WarData } from '../data/war';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useClimateLayer } from '../hooks/useClimateLayer';
+import { usePointClimate } from '../hooks/usePointClimate';
 import { useI18n } from '../i18n/I18n';
 import { formatPoint, numberFormat, regionName } from '../i18n/format';
 import { useStudio } from '../i18n/useStudio';
-import { fromQuery, initialState, reducer, toQuery, type ExploreState } from '../state/explore';
+import { fromQuery, initialState, reducer, toQuery, type ExploreState, type Slot } from '../state/explore';
 
 const GISTEMP_YEARS: [number, number] = [1880, 2025];
 const WMS_LEVEL: Record<string, number> = { '2km': 5, '1km': 6, '500m': 7, '250m': 8 };
@@ -39,6 +42,55 @@ export default function Explore() {
   const [view, setView] = useState<GlobeView | null>(initial.view);
   const [hover, setHover] = useState<GlobePoint | null>(null);
   const [loading, setLoading] = useState(false);
+  const [missedCountry, setMissedCountry] = useState(false);
+
+  // Borders, coastlines, capitals, seas and rivers: loaded the first time the borders go on.
+  const [geoLabels, setGeoLabels] = useState<GeoLabels | null>(null);
+  const [borderLines, setBorderLines] = useState<GeoBorders | null>(null);
+  useEffect(() => {
+    if (!state.borders || (geoLabels && borderLines)) return;
+    let cancelled = false;
+    loadBorders()
+      .then((b) => !cancelled && setBorderLines(b))
+      .catch(() => undefined);
+    loadLabels()
+      .then((l) => !cancelled && setGeoLabels(l))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [state.borders, geoLabels, borderLines]);
+
+  // Countries picked as A or B: their outlines on the globe, and their real bounding boxes when
+  // they came from a shared link.
+  const [countryShapes, setCountryShapes] = useState<Map<string, GeoCountry> | null>(null);
+  const needsCountries = state.regionA?.kind === 'country' || state.regionB?.kind === 'country' || state.pickMode === 'country';
+  useEffect(() => {
+    if (!needsCountries || countryShapes) return;
+    loadCountries()
+      .then(setCountryShapes)
+      .catch(() => undefined);
+  }, [needsCountries, countryShapes]);
+  useEffect(() => {
+    if (!countryShapes) return;
+    const fix = (r: Region | null) => {
+      if (r?.kind !== 'country') return null;
+      const c = countryShapes.get(r.code);
+      return c && (r.box.s !== c.box[0] || r.box.n !== c.box[2]) ? countryRegion(c) : null;
+    };
+    const a = fix(state.regionA);
+    const b = fix(state.regionB);
+    if (a || b) dispatch({ type: 'hydrate', state: { ...(a ? { regionA: a } : {}), ...(b ? { regionB: b } : {}) } });
+  }, [countryShapes, state.regionA, state.regionB]);
+  const outlines = useMemo<GlobeOutline[]>(() => {
+    if (!countryShapes) return [];
+    const out: GlobeOutline[] = [];
+    for (const [id, r] of [['A', state.regionA], ['B', state.regionB]] as const) {
+      const c = r?.kind === 'country' ? countryShapes.get(r.code) : null;
+      if (c) out.push({ id, rings: c.rings });
+    }
+    return out;
+  }, [countryShapes, state.regionA, state.regionB]);
 
   const variable = state.variable ? variableById[state.variable] : null;
   const chartVariable = variableById[state.chartVariable];
@@ -126,7 +178,7 @@ export default function Explore() {
   const compareStart = state.variable === 'gistemp' ? 1950 : yearRange[0];
 
   // Analysis
-  const analysis = useAnalysis(state.chartVariable, state.regionA, state.regionB, state.season, from, Math.max(from + 1, to));
+  const analysis = useAnalysis(state.chartVariable, state.regionA, state.regionB, state.season, from, Math.max(from + 1, to), state.chartView);
 
   // Event marks for the chart: only for this variable, and regional ones only where A or B is.
   const marks = useMemo(() => {
@@ -136,7 +188,8 @@ export default function Explore() {
 
   // Clicking a year on the chart shows it on the globe: the map layer if it has years, otherwise
   // the chart variable's own layer.
-  const onPickYear = (year: number) => {
+  const onPickYear = (year: number, month?: number) => {
+    if (month) dispatch({ type: 'month', month });
     const target = variable && (variable.imagery || variable.id === 'gistemp') ? variable : chartVariable.imagery || chartVariable.id === 'gistemp' ? chartVariable : null;
     if (!target) return;
     if (target.id !== state.variable) dispatch({ type: 'variable', id: target.id });
@@ -207,17 +260,59 @@ export default function Explore() {
     globe.current?.flyTo(c.camera.lat, c.camera.lon, c.camera.distance);
   }, []);
 
-  const onFound = useCallback((country: Country) => {
-    dispatch({ type: 'borders', on: true });
-    globe.current?.flyTo(country.lat, country.lon, country.big ? 2.2 : 1.45);
+  const onFound = useCallback(
+    (country: Country) => {
+      dispatch({ type: 'borders', on: true });
+      dispatch({ type: 'weatherAt', place: { lat: country.lat, lon: country.lon, name: { uk: countryName(country.code, 'uk'), en: countryName(country.code, 'en') } } });
+      globe.current?.flyTo(country.lat, country.lon, country.big ? 2.2 : 1.45);
+    },
+    [],
+  );
+
+  const onCountry = useCallback((slot: Slot, c: GeoCountry) => {
+    setMissedCountry(false);
+    dispatch({ type: 'region', slot, region: countryRegion(c) });
+    globe.current?.flyTo(c.label[0], c.label[1], c.area > 3e6 ? 2.6 : c.area > 3e5 ? 1.9 : 1.5);
   }, []);
 
   const onPick = useCallback(
     (p: GlobePoint) => {
-      dispatch({ type: 'region', slot: state.picking ?? 'A', region: { kind: 'point', lat: p.lat, lon: p.lon, radiusKm: state.radiusKm } });
+      setMissedCountry(false);
+      dispatch({ type: 'weatherAt', place: { lat: p.lat, lon: p.lon } });
+      // With the weather panel open, a click only moves the weather place.
+      if (state.panel === 'weather' && !state.picking) return;
+      const slot = state.picking ?? 'A';
+      if (state.pickMode === 'country') {
+        void countryAt(p.lat, p.lon).then((c) => {
+          if (c) dispatch({ type: 'region', slot, region: countryRegion(c) });
+          else setMissedCountry(true);
+        });
+        return;
+      }
+      dispatch({ type: 'region', slot, region: { kind: 'point', lat: p.lat, lon: p.lon, radiusKm: state.radiusKm } });
     },
-    [state.picking, state.radiusKm],
+    [state.picking, state.radiusKm, state.pickMode, state.panel],
   );
+
+  // Temperature, humidity, rain and wind under the pointer for the timeline month (NASA POWER).
+  const pointClimate = usePointClimate(hover, state.year, state.month);
+  let climateLine: string | null = null;
+  if (hover) {
+    const v = pointClimate.values;
+    if (pointClimate.status === 'error') climateLine = s.readout.error;
+    else if (!v) climateLine = s.readout.loading;
+    else {
+      const f1 = numberFormat(lang, 1, false);
+      const f0 = numberFormat(lang, 0, false);
+      const parts = [
+        v.temp !== null && `${s.readout.temp} ${f1(v.temp)} °C`,
+        v.humidity !== null && `${s.readout.humidity} ${f0(v.humidity)}%`,
+        v.precip !== null && `${s.readout.precip} ${f0(v.precip)} ${lang === 'uk' ? 'мм' : 'mm'}`,
+        v.wind !== null && `${s.readout.wind} ${f1(v.wind)} ${lang === 'uk' ? 'м/с' : 'm/s'}`,
+      ].filter(Boolean);
+      climateLine = `${s.readout.month(s.timeline.months[v.month - 1].toLowerCase(), v.year)}${v.clamped ? ` ${s.readout.clamped(v.year)}` : ''}: ${parts.join(' · ')}`;
+    }
+  }
 
   // Value under the pointer for the climate layer.
   let readout: string | null = null;
@@ -248,6 +343,10 @@ export default function Explore() {
         markers={markers}
         compare={globeCompare}
         hints={globeHints}
+        geo={geoLabels}
+        borderLines={borderLines}
+        labelLayers={state.labels}
+        outlines={outlines}
         onHint={onHint}
         onHover={setHover}
         onPick={onPick}
@@ -270,6 +369,8 @@ export default function Explore() {
               variable={state.variable}
               mode={state.gistempMode}
               borders={state.borders}
+              labels={state.labels}
+              onLabels={(labels) => dispatch({ type: 'labels', labels })}
               year={state.year}
               month={state.month}
               from={state.from}
@@ -285,6 +386,17 @@ export default function Explore() {
             />
           )}
           {state.panel === 'cases' && <CasesPanel activeId={state.caseId} onOpen={openCase} />}
+          {state.panel === 'weather' && (
+            <WeatherPanel
+              place={state.weatherAt}
+              regionA={state.regionA}
+              regionB={state.regionB}
+              onPlace={(place) => {
+                dispatch({ type: 'weatherAt', place });
+                globe.current?.flyTo(place.lat, place.lon, 1.8);
+              }}
+            />
+          )}
           {state.panel === 'glossary' && <GlossaryPanel />}
           {state.panel === 'share' && <SharePanel url={shareUrl} />}
         </Flyout>
@@ -296,6 +408,12 @@ export default function Explore() {
           regionA={state.regionA}
           regionB={state.regionB}
           picking={state.picking}
+          pickMode={state.pickMode}
+          chartView={state.chartView}
+          missedCountry={missedCountry}
+          onPickMode={(mode) => dispatch({ type: 'pickMode', mode })}
+          onCountry={onCountry}
+          onChartView={(v) => dispatch({ type: 'chartView', view: v })}
           radiusKm={state.radiusKm}
           season={state.season}
           from={from}
@@ -348,7 +466,12 @@ export default function Explore() {
         />
       )}
 
-      {readout && <p className="readout-chip">{readout}</p>}
+      {readout && (
+        <p className="readout-chip">
+          <span>{readout}</span>
+          {climateLine && <span className="readout-chip__climate">{climateLine}</span>}
+        </p>
+      )}
       {loading && (
         <p className="explore__status" role="status">
           {s.imagery}

@@ -24,7 +24,7 @@ climate data ships with the site (`public/data/gistemp`, 2.4 MB).
 
 ## What the 3D Earth does (`/explore`): the studio
 
-A tool rail on the left: **Layers, Cases, Analysis, Glossary, Share**. A timeline
+A tool rail on the left: **Layers, Cases, Analysis, Weather, Glossary, Share**. A timeline
 with a Play button at the bottom, the analysis drawer on the right.
 
 - **Globe**: rotate, zoom with the wheel or two fingers, down to about 95 km.
@@ -34,6 +34,15 @@ with a Play button at the bottom, the analysis drawer on the right.
   once it has loaded (or after 2.5 s), so the globe never shows a mix of scales
   or a bare map. Layers sit on the same sphere as the map, so they do not slide
   up close. A frame is drawn only when something changed.
+- **Map**: the "Borders and country names" switch also turns on capitals (a
+  ring and a name), oceans and seas (italic) and rivers (blue lines and names),
+  each of which can be switched off. Data: Natural Earth (public domain), with
+  Crimea as part of Ukraine. Labels appear with camera height, and one that
+  would overlap a more important one is hidden or moved aside.
+- **Under the pointer**: the coordinates and, from NASA POWER (MERRA-2), the
+  temperature, humidity, precipitation and wind at that spot for the month and
+  year on the timeline, over the ocean too. One request per 0.5° cell fetches
+  every month since 1981, so moving the timeline afterwards needs no request.
 - **Layers**: 12 NASA variables, each with a plain definition:
   - *with numbers*: temperature anomaly (GISTEMP, 1880-2025); air temperature,
     precipitation, soil moisture and humidity (NASA POWER, MERRA-2, 1981-2025);
@@ -48,6 +57,12 @@ with a Play button at the bottom, the analysis drawer on the right.
 - **War in Ukraine**: occupied, partly occupied and active-hostility hromadas from
   the official list of the Ministry for Development of Ukraine (Order No. 376).
 - **Analysis**: click a place on the globe (region A), optionally add region B.
+  A region can be **a whole country**: type its name under A or B, or switch
+  "A click on the globe picks: A country" and click it. The country is outlined
+  on the globe in the region's colour, and the numbers come only from inside its
+  borders: GISTEMP cells, the NASA POWER grid (up to 4 requests of 10°), or for
+  large countries 16 points spread evenly over the territory. So you can compare,
+  say, Ukraine and Poland by temperature, rainfall or soil moisture.
   The drawer builds the time series and shows:
   - the Theil-Sen slope with its 95% confidence interval;
   - the Mann-Kendall test and the t-test;
@@ -68,13 +83,48 @@ with a Play button at the bottom, the analysis drawer on the right.
   on the chart and the globe shows that year. The **by month** chart shows the
   last four years, the period mean and the expected next year.
 
-  Region size: point, 250, 500 or 1000 km. Monthly data can be split by season.
-  The chart downloads as CSV (with the continued trend) and PNG.
+  Chart view: **Years**, **Months** (every month since 1981), **Days** (daily
+  NASA POWER data) or **Seasonal cycle**. For months and days the trend is
+  checked with the seasonal Mann-Kendall test (Hirsch, Slack and Smith 1982):
+  January is compared only with Januaries, so winter and summer do not pose as
+  a trend. Daily values are turned into monthly means for the test.
+
+  The chart **stretches and shrinks**: mouse wheel or the + / − buttons, drag
+  to move, double click to see it all, and the navigator strip below shows the
+  open window (drag the frame or its edges). When values are far enough apart
+  each gets a dot, as on a classic data plot. "Full screen" opens the chart over
+  the whole page (Esc closes it). Drag the analysis drawer's left edge to resize
+  it.
+
+  The **"How it is computed"** tab: for each method (area mean, Mann-Kendall,
+  the seasonal test, Theil-Sen slope, regression and t-test, Weatherhead's
+  estimate, the continued trend, the normal, event probability) where it shows
+  on screen, plain words, the formula and the same arithmetic on your data (how
+  many pairs went up and down, S, Var(S), Z, p and so on). The ⓘ next to the
+  verdict opens the test's explanation.
+
+  Region size: point, 250, 500 or 1000 km. Yearly data can be split by season.
+  The chart downloads as CSV (years, months or days) and PNG. Under the chart,
+  **links to other tools** with the region's coordinates: NASA Worldview,
+  Giovanni, Earthdata Search (GLDAS hydrology data), CUAHSI HydroShare and
+  HydroClient, and a NASA POWER CSV.
+- **Weather**: for any place (a click on the globe, a capital from the list or
+  region A/B):
+  - a 7-day forecast from Open-Meteo: chance of rain, thunderstorms, gusts
+    (a weather-service forecast, not NASA data, and labelled so);
+  - **tornado**: the official NOAA Storm Prediction Center probability for today
+    and tomorrow (within 40 km) and the severe storm risk for day 3. USA only:
+    nobody else publishes official odds, and we do not make them up;
+  - "How often it happens here": the share of the month's days with rain, heavy
+    rain, heat, frost and strong wind from daily NASA POWER data, 1981-2000
+    against 2006-2025, with the Mann-Kendall test on the yearly count of such
+    days.
 - **Hints on the globe**: zoom in on a place where something notable happened
   (the 2020 Chornobyl zone fires, field burning, Kakhovka, the Aral Sea, Lake
-  Chad, Pinatubo, the Amazon in 2019, Canada in 2023, Arctic sea ice) and a "!"
-  appears. Its card says what it is and links the NASA article and the image of
-  that day in NASA Worldview. Every statement comes from those sources.
+  Chad, Pinatubo, the Amazon in 2019, Canada in 2023, Arctic sea ice) and a red
+  map pin appears, its tip on the spot. Its card says what it is and links the
+  NASA article and the image of that day in NASA Worldview. Every statement
+  comes from those sources.
 - **Before/after divider**: "Compare years" on the timeline splits the globe
   with a line; one year on the left, another on the right. Works for GISTEMP
   and every imagery layer; drag the line or move it with the arrow keys.
@@ -113,7 +163,17 @@ Other scripts:
 ```bash
 python data-pipeline/build_ozone.py        # NASA Ozone Watch: ozone hole area by year
 python data-pipeline/build_occupation.py   # official list of occupied territories + OSM hromada boundaries
+python data-pipeline/build_geo.py          # Natural Earth: country outlines, capitals, seas, rivers
 ```
+
+`build_geo.py` downloads Natural Earth layers (about 20 MB of GeoJSON from
+github.com/nvkelso/natural-earth-vector) into `data-pipeline/cache/naturalearth/`,
+simplifies the lines and writes `public/data/geo/countries.json` (about 550 KB:
+outlines of 237 countries for comparisons) and `labels.json` (about 170 KB: 200
+capitals, 125 seas and oceans, 160 rivers). Ukrainian names of countries,
+capitals and seas come from Natural Earth; river names are translated in the
+script. Natural Earth draws Crimea as Russian by default; the script moves its
+polygon to Ukraine.
 
 `build_occupation.py` reads the three DOCX parts of the official list from
 zakon.rada.gov.ua (Order No. 376, current edition), keeps each settlement's status

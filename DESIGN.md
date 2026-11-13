@@ -31,6 +31,19 @@ reference stay; colour, layout and imagery below replace it.
 - Country names: Inter, Star, with a soft Void halo; big countries 13px 500,
   the rest 11px.
 
+## Map labels and pins (Natural Earth layers)
+
+- Capitals: a 7px ring (Star on Void) on the city with the name to its right,
+  Inter 11px. Seas: Source Serif italic in Sea label `#b9d8ff`, oceans 14px
+  uppercase tracked 0.22em at 85%, big seas 13px, the rest 11px. Rivers: 1.3px
+  lines in River `#6fb8ff` at 80% with Source Serif italic names in `#9fd0ff`.
+- Labels are ranked (markers and pins, oceans, big countries, big capitals,
+  seas, countries, capitals, rivers); one that would overlap a higher one tries
+  just below or above its place, otherwise it is hidden.
+- Anomaly hints are map pins (by the team's request): Pin `#e5483b` with a
+  `#a8291f` edge, a `#dde2ea` eye and a grey ground shadow; the tip sits on the
+  place. Countries picked as A or B are outlined in their series colour, 2.4px.
+
 ## Colour
 
 | Name | Value | Role |

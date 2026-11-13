@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { countries } from '../data/countries';
+import type { GeoBorders, GeoLabels } from '../data/geo';
 import { RAMP } from '../data/gistemp';
 import { useReducedMotion } from '../hooks/useMedia';
 import type { Lang } from '../i18n/strings';
-import { stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmsSource, wmtsSource, type Box, type TileSource } from './globe/tiles';
+import { stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmtsSource, type Box, type TileSource } from './globe/tiles';
 
 /** Where the camera starts: over Ukraine, pulled back to show the whole disc. */
 const START = { lat: 42, lon: 28 };
@@ -20,8 +24,16 @@ const LABELS_BIG = 4.2;
 const LABELS_ALL = 1.9;
 /** Hints about anomalies appear once the camera is this close. */
 const HINTS_FROM = 2.0;
-/** NASA GIBS line layers: US Department of State international boundaries and coastlines (dropped up close). */
-const BORDERS = wmsSource('Coastlines_15m,DoS_International_Boundaries', 10, undefined, 'DoS_International_Boundaries');
+/** Capitals by Natural Earth rank: the biggest from this far out, the rest closer. */
+const CAPITALS_FROM = [3.4, 3.4, 2.9, 2.5, 2.2, 1.9, 1.7];
+/** Coastlines fade out this close: the imagery shows the coast better than a 2 km line. */
+const COAST_UNTIL = 1.12;
+/** Seas by rank: oceans always, small gulfs and straits only up close. */
+const SEAS_FROM = [9, 3.4, 2.6, 2.0, 1.6, 1.4];
+/** Rivers by rank. */
+const RIVERS_FROM = [3.0, 3.0, 2.6, 2.2, 1.9, 1.7, 1.5, 1.4, 1.3, 1.3];
+/** Lines on the globe sit this far above the sphere so the flat map facets never cover them. */
+const LINE_RADIUS = 1.0006;
 /**
  * Base map: NASA Blue Marble (500 m) down to its finest level, then the Landsat WELD global mosaic
  * (30 m, 1998-2000 composite) for close views. Blue Marble itself is a 2004 composite.
@@ -41,6 +53,9 @@ export type GlobeMarker = { id: string; lat: number; lon: number; label: string 
 /** A hint about an anomaly, shown when zoomed in on its area. */
 export type GlobeHint = { id: string; lat: number; lon: number; label: string };
 export type GlobeView = { lat: number; lon: number; distance: number };
+/** A region drawn as a coloured outline (a country picked as A or B). Rings: flat lon, lat pairs. */
+export type GlobeOutline = { id: string; rings: number[][] };
+export type GlobeLabelLayers = { capitals: boolean; seas: boolean; rivers: boolean };
 /** A painted canvas draped over a lat/lon box (the Ukraine war layer). */
 /** A vector layer painted on a canvas over `box`; `draw` repaints any part of it sharper for close views. */
 export type GlobeVector = {
@@ -71,6 +86,12 @@ type Props = {
   markers: GlobeMarker[];
   compare?: GlobeCompare | null;
   hints?: GlobeHint[];
+  /** Capitals, seas and rivers (Natural Earth), shown with the borders. */
+  geo?: GeoLabels | null;
+  /** Border and coast lines (Natural Earth, Ukraine's point of view), shown with the borders. */
+  borderLines?: GeoBorders | null;
+  labelLayers?: GlobeLabelLayers;
+  outlines?: GlobeOutline[];
   onHint?: (id: string) => void;
   onHover?: (point: GlobePoint | null) => void;
   onPick?: (point: GlobePoint) => void;
@@ -239,6 +260,9 @@ type Api = GlobeApi & {
   setVector: (vector: GlobeVector | null) => void;
   setMarkers: (markers: GlobeMarker[]) => void;
   setHints: (hints: GlobeHint[]) => void;
+  setGeo: (geo: GeoLabels | null, layers: GlobeLabelLayers) => void;
+  setBorderLines: (lines: GeoBorders | null) => void;
+  setOutlines: (outlines: GlobeOutline[]) => void;
   setLang: (lang: Lang) => void;
   setReducedMotion: (on: boolean) => void;
   dispose: () => void;
@@ -296,7 +320,6 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   const base = new TiledLayer(2, anisotropy, requestRender, onLoading);
   base.noData.value = 0.0012; // 4/255 in sRGB: open sea in the Landsat mosaic is pure black, water is brighter
   const imagery = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
-  const borders = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
   base.setSource(BASE);
 
   const atmosphereColor = readToken('--color-atmosphere', '#7fb0ff');
@@ -385,27 +408,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   dataMeshL.visible = false;
   scene.add(dataMeshL);
 
-  const bordersUniforms = {
-    uOpacity: { value: 0.9 },
-    uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uSplit: split,
-    uSide: { value: 0 },
-    ...tiledUniforms('uLine', borders),
-  };
-  const bordersMesh = new THREE.Mesh(
-    sphere,
-    new THREE.ShaderMaterial({
-      uniforms: bordersUniforms,
-      vertexShader: vertex,
-      fragmentShader: overlayFragment('uLine'),
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  bordersMesh.renderOrder = 3;
-  bordersMesh.visible = false;
-  scene.add(bordersMesh);
+  /** Borders, coastlines and map labels are on together (the "Borders and names" switch). */
+  let bordersOn = false;
 
   const vectorUniforms = {
     uVec: { value: new THREE.Texture() },
@@ -483,9 +487,27 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   starGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ size: 1.4, sizeAttenuation: false, vertexColors: true, depthWrite: false })));
 
-  // Country names
-  let names = new Intl.DisplayNames([opts.lang], { type: 'region' });
-  const labels = countries.map((c) => {
+  // Map labels: country names, and (with the Natural Earth layer) capitals, seas and rivers.
+  // Each has a priority; nearer the camera more of them qualify, and a label that would overlap
+  // one of higher priority on screen is left out.
+  type MapLabel = {
+    obj: CSS2DObject;
+    normal: THREE.Vector3;
+    layer: 'country' | 'capital' | 'sea' | 'river';
+    priority: number;
+    /** Shown from this camera distance in. */
+    from: number;
+    /** Estimated size on screen, and where the anchor sits across it (0 left, 0.5 centre). */
+    w: number;
+    h: number;
+    ax: number;
+    text: { uk: string; en: string } | null;
+    code?: string;
+  };
+  let lang = opts.lang;
+  let names = new Intl.DisplayNames([lang], { type: 'region' });
+  const textWidth = (text: string, px: number) => text.length * px * 0.58 + 6;
+  const countryLabels: MapLabel[] = countries.map((c) => {
     const el = document.createElement('div');
     el.className = c.big ? 'globe__label globe__label--big' : 'globe__label';
     el.textContent = names.of(c.code) ?? c.name;
@@ -493,8 +515,59 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     obj.position.copy(fromLatLon(c.lat, c.lon, 1.01));
     obj.visible = false;
     scene.add(obj);
-    return { country: c, obj, normal: fromLatLon(c.lat, c.lon, 1) };
+    return {
+      obj,
+      normal: fromLatLon(c.lat, c.lon, 1),
+      layer: 'country',
+      priority: c.big ? 3 : 6,
+      from: c.big ? LABELS_BIG : LABELS_ALL,
+      w: textWidth(el.textContent, c.big ? 13 : 11),
+      h: c.big ? 16 : 14,
+      ax: 0.5,
+      text: null,
+      code: c.code,
+    };
   });
+  let geoLabels: MapLabel[] = [];
+  let mapLabels: MapLabel[] = [...countryLabels];
+  let layers: GlobeLabelLayers = { capitals: true, seas: true, rivers: true };
+
+  // Rivers and outlines are fat lines (LineSegments2): WebGL lines are one pixel at most.
+  const riverColor = readToken('--color-river', '#6fb8ff');
+  const lineMaterials: LineMaterial[] = [];
+  const makeLineMaterial = (color: THREE.Color, width: number, opacity: number) => {
+    const m = new LineMaterial({ color, linewidth: width, transparent: true, opacity, depthWrite: false });
+    lineMaterials.push(m);
+    return m;
+  };
+  /** Segment pairs on the sphere from flat lon/lat lines, cut into pieces of at most `maxDeg`. */
+  const segmentsFrom = (lines: number[][], closed: boolean, radius: number, maxDeg = 0.5) => {
+    const out: number[] = [];
+    for (const line of lines) {
+      const count = line.length / 2;
+      const last = closed ? count : count - 1;
+      for (let i = 0; i < last; i++) {
+        const j = (i + 1) % count;
+        const lon1 = line[i * 2];
+        const lat1 = line[i * 2 + 1];
+        const lon2 = line[j * 2];
+        const lat2 = line[j * 2 + 1];
+        if (Math.abs(lon2 - lon1) > 180) continue; // a ring cut at the antimeridian
+        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(lon2 - lon1), Math.abs(lat2 - lat1)) / maxDeg));
+        for (let k = 0; k < steps; k++) {
+          const t0 = k / steps;
+          const t1 = (k + 1) / steps;
+          const a = fromLatLon(lat1 + (lat2 - lat1) * t0, lon1 + (lon2 - lon1) * t0, radius);
+          const b = fromLatLon(lat1 + (lat2 - lat1) * t1, lon1 + (lon2 - lon1) * t1, radius);
+          out.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        }
+      }
+    }
+    return out;
+  };
+  let rivers: LineSegments2 | null = null;
+  let outlineObjects: LineSegments2[] = [];
+  let borderObjects: { line: LineSegments2; coast: boolean }[] = [];
 
   // Region markers
   let markerObjects: { obj: CSS2DObject; normal: THREE.Vector3 }[] = [];
@@ -564,7 +637,6 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     base.updateView(box, px);
     if (imageryMesh.visible) imagery.updateView(box, px);
     if (imageryMeshL.visible) imageryL.updateView(box, px);
-    if (bordersMesh.visible) borders.updateView(box, px);
     updateVectorPatch(box, px);
     const p = toLatLon(camera.position);
     cb.onView({ lat: p.lat, lon: p.lon, distance });
@@ -631,20 +703,75 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     cb.onHover(pointAt());
   };
 
-  // Labels and markers: only on the near side.
+  // Labels and markers: only on the near side, and map labels only where they do not collide.
   const camDir = new THREE.Vector3();
+  const projected = new THREE.Vector3();
   const updateLabels = () => {
     const distance = camera.position.length();
     camDir.copy(camera.position).normalize();
     const horizon = 1 / distance;
-    for (const l of labels) {
-      l.obj.visible =
-        bordersMesh.visible &&
-        l.normal.dot(camDir) > horizon + 0.12 &&
-        (l.country.big ? distance <= LABELS_BIG : distance <= LABELS_ALL);
+    const w = host.clientWidth;
+    const h = host.clientHeight;
+    const taken: [number, number, number, number][] = [];
+    const screen = (normal: THREE.Vector3) => {
+      projected.copy(normal).project(camera);
+      return [((projected.x + 1) / 2) * w, ((1 - projected.y) / 2) * h] as const;
+    };
+    const free = (x0: number, y0: number, x1: number, y1: number) => taken.every(([a, b, c, d]) => x1 < a || x0 > c || y1 < b || y0 > d);
+    // Markers and hints always show; map labels keep clear of them.
+    for (const m of markerObjects) {
+      m.obj.visible = m.normal.dot(camDir) > horizon + 0.02;
+      if (m.obj.visible) {
+        const [x, y] = screen(m.normal);
+        taken.push([x - 12, y - 12, x + 150, y + 12]);
+      }
     }
-    for (const m of markerObjects) m.obj.visible = m.normal.dot(camDir) > horizon + 0.02;
-    for (const h of hintObjects) h.obj.visible = distance <= HINTS_FROM && h.normal.dot(camDir) > horizon + 0.05;
+    for (const hint of hintObjects) {
+      hint.obj.visible = distance <= HINTS_FROM && hint.normal.dot(camDir) > horizon + 0.05;
+      if (hint.obj.visible) {
+        const [x, y] = screen(hint.normal);
+        taken.push([x - 2, y - 30, x + 24, y + 2]);
+      }
+    }
+    const shown = bordersOn;
+    for (const l of mapLabels) {
+      const on =
+        shown &&
+        distance <= l.from &&
+        (l.layer === 'country' || layers[l.layer === 'capital' ? 'capitals' : l.layer === 'sea' ? 'seas' : 'rivers']) &&
+        l.normal.dot(camDir) > horizon + (l.layer === 'sea' ? 0.08 : 0.12);
+      if (!on) {
+        l.obj.visible = false;
+        continue;
+      }
+      const [x, y] = screen(l.normal);
+      const x0 = x - l.w * l.ax - 2;
+      // A name that collides tries just below, then just above its place; a capital's dot cannot
+      // move, so a capital without room for its name still shows its dot.
+      const shifts = l.layer === 'capital' ? [0] : [0, l.h + 4, -(l.h + 4)];
+      let placed: number | null = null;
+      for (const dy of shifts) {
+        const box: [number, number, number, number] = [x0, y + dy - l.h / 2 - 1, x0 + l.w + 4, y + dy + l.h / 2 + 1];
+        if (free(...box)) {
+          taken.push(box);
+          placed = dy;
+          break;
+        }
+      }
+      let dotOnly = false;
+      if (placed === null && l.layer === 'capital' && free(x - 4, y - 4, x + 4, y + 4)) {
+        taken.push([x - 4, y - 4, x + 4, y + 4]);
+        placed = 0;
+        dotOnly = true;
+      }
+      l.obj.visible = placed !== null;
+      if (placed !== null) {
+        l.obj.element.style.marginTop = placed ? `${placed}px` : '';
+        if (l.layer === 'capital') l.obj.element.classList.toggle('globe__place--dot-only', dotOnly);
+      }
+    }
+    if (rivers) rivers.visible = shown && layers.rivers;
+    for (const b of borderObjects) b.line.visible = shown && (!b.coast || distance > COAST_UNTIL);
   };
 
   // Fly-to
@@ -671,6 +798,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
     labelRenderer.setSize(w, h);
+    for (const m of lineMaterials) m.resolution.set(w, h);
     split.value = splitFraction * renderer.domElement.width;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -794,8 +922,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       requestRender();
     },
     setBorders(on) {
-      bordersMesh.visible = on;
-      borders.setSource(on ? BORDERS : null);
+      bordersOn = on;
       requestRender();
       scheduleView();
     },
@@ -844,10 +971,12 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         el.type = 'button';
         el.className = 'globe__hint';
         el.setAttribute('aria-label', h.label);
+        // A map pin whose tip marks the place.
         const icon = document.createElement('span');
         icon.className = 'globe__hint-icon';
         icon.setAttribute('aria-hidden', 'true');
-        icon.textContent = '!';
+        icon.innerHTML =
+          '<svg viewBox="0 0 24 32" width="22" height="29" focusable="false"><ellipse cx="12" cy="29.6" rx="5.5" ry="1.9" class="globe__pin-shadow"/><path class="globe__pin-body" d="M12 1.5C6.2 1.5 1.6 6.1 1.6 11.8c0 7.3 8.5 15.2 9.5 16.1a1.3 1.3 0 0 0 1.8 0c1-.9 9.5-8.8 9.5-16.1C22.4 6.1 17.8 1.5 12 1.5Z"/><circle class="globe__pin-eye" cx="12" cy="11.6" r="4.6"/></svg>';
         const text = document.createElement('span');
         text.className = 'globe__hint-text';
         text.textContent = h.label;
@@ -857,15 +986,129 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
           cb.onHint(h.id);
         });
         const obj = new CSS2DObject(el);
+        // The pin's tip (bottom middle of the icon) sits on the place.
+        obj.center.set(0, 1);
         obj.position.copy(fromLatLon(h.lat, h.lon, 1.004));
         scene.add(obj);
         return { obj, normal: fromLatLon(h.lat, h.lon, 1) };
       });
       requestRender();
     },
-    setLang(lang) {
+    setLang(next) {
+      lang = next;
       names = new Intl.DisplayNames([lang], { type: 'region' });
-      for (const l of labels) l.obj.element.textContent = names.of(l.country.code) ?? l.country.name;
+      for (const l of countryLabels) {
+        const c = countries.find((x) => x.code === l.code)!;
+        l.obj.element.textContent = names.of(c.code) ?? c.name;
+        l.w = textWidth(l.obj.element.textContent ?? '', c.big ? 13 : 11);
+      }
+      for (const l of geoLabels) {
+        const label = l.obj.element.querySelector('.globe__place-name') ?? l.obj.element;
+        label.textContent = l.text![lang];
+        l.w = textWidth(l.text![lang], l.h > 15 ? 13 : 11) + (l.layer === 'capital' ? 10 : 0);
+      }
+      requestRender();
+    },
+    setGeo(geo, nextLayers) {
+      layers = nextLayers;
+      if (geo && !geoLabels.length) {
+        const make = (layer: MapLabel['layer'], place: { uk: string; en: string; lat: number; lon: number; rank: number }, priority: number, from: number, extra = ''): MapLabel => {
+          const el = document.createElement('div');
+          el.className = `globe__place globe__place--${layer}${extra}`;
+          const name = document.createElement('span');
+          name.className = 'globe__place-name';
+          name.textContent = place[lang];
+          if (layer === 'capital') {
+            const dot = document.createElement('span');
+            dot.className = 'globe__place-dot';
+            el.append(dot);
+          }
+          el.append(name);
+          const obj = new CSS2DObject(el);
+          // Capitals hang their name to the right of a dot on the city.
+          if (layer === 'capital') obj.center.set(0, 0.5);
+          obj.position.copy(fromLatLon(place.lat, place.lon, 1.004));
+          obj.visible = false;
+          scene.add(obj);
+          const big = layer === 'sea' && place.rank <= 1;
+          return {
+            obj,
+            normal: fromLatLon(place.lat, place.lon, 1),
+            layer,
+            priority,
+            from,
+            w: textWidth(place[lang], big ? 13 : 11) + (layer === 'capital' ? 10 : 0),
+            h: big ? 17 : 14,
+            ax: layer === 'capital' ? 0 : 0.5,
+            text: { uk: place.uk, en: place.en },
+          };
+        };
+        geoLabels = [
+          ...geo.seas.map((x) => make('sea', x, x.rank === 0 ? 1 : x.rank <= 2 ? 4 : 8, SEAS_FROM[Math.min(5, x.rank)], x.rank === 0 ? ' globe__place--ocean' : x.rank <= 1 ? ' globe__place--bigsea' : '')),
+          ...geo.capitals.map((c) => make('capital', c, c.rank <= 1 ? 4.5 : c.rank <= 3 ? 7 : 9, CAPITALS_FROM[Math.min(6, c.rank)])),
+          ...geo.rivers.labels.map((r) => make('river', r, r.rank <= 3 ? 8.5 : 10, RIVERS_FROM[Math.min(9, r.rank)])),
+        ];
+        mapLabels = [...countryLabels, ...geoLabels].sort((a, b) => a.priority - b.priority);
+        const geometry = new LineSegmentsGeometry();
+        geometry.setPositions(segmentsFrom(geo.rivers.lines, false, LINE_RADIUS));
+        rivers = new LineSegments2(geometry, makeLineMaterial(riverColor, 1.3, 0.8));
+        rivers.renderOrder = 4;
+        rivers.visible = false;
+        rivers.frustumCulled = false;
+        scene.add(rivers);
+        resize();
+      }
+      requestRender();
+    },
+    setBorderLines(lines) {
+      for (const b of borderObjects) {
+        scene.remove(b.line);
+        b.line.geometry.dispose();
+        const m = b.line.material as LineMaterial;
+        m.dispose();
+        lineMaterials.splice(lineMaterials.indexOf(m), 1);
+      }
+      borderObjects = [];
+      if (lines) {
+        const star = readToken('--color-border', '#eef2fb');
+        const halo = readToken('--color-void', '#03060f');
+        const add = (data: number[][], color: THREE.Color, width: number, opacity: number, order: number, coast: boolean, radius: number) => {
+          const geometry = new LineSegmentsGeometry();
+          geometry.setPositions(segmentsFrom(data, false, radius));
+          const line = new LineSegments2(geometry, makeLineMaterial(color, width, opacity));
+          line.renderOrder = order;
+          line.frustumCulled = false;
+          line.visible = false;
+          scene.add(line);
+          borderObjects.push({ line, coast });
+        };
+        add(lines.coast, star, 0.9, 0.45, 3.5, true, LINE_RADIUS);
+        add(lines.land, halo, 4, 0.55, 4.05, false, LINE_RADIUS + 0.0001);
+        add(lines.disputed, star, 1.2, 0.55, 4.1, false, LINE_RADIUS + 0.0002);
+        add(lines.land, star, 1.6, 0.95, 4.15, false, LINE_RADIUS + 0.0002);
+        resize();
+      }
+      requestRender();
+    },
+    setOutlines(outlines) {
+      for (const o of outlineObjects) {
+        scene.remove(o);
+        o.geometry.dispose();
+        const m = o.material as LineMaterial;
+        m.dispose();
+        lineMaterials.splice(lineMaterials.indexOf(m), 1);
+      }
+      outlineObjects = outlines.map((o) => {
+        const geometry = new LineSegmentsGeometry();
+        geometry.setPositions(segmentsFrom(o.rings, true, LINE_RADIUS + 0.0002));
+        const color = readToken(`--color-series-${o.id.toLowerCase()}`, '#f3bd6e');
+        const line = new LineSegments2(geometry, makeLineMaterial(color, 2.4, 0.95));
+        line.renderOrder = 5;
+        line.frustumCulled = false;
+        scene.add(line);
+        return line;
+      });
+      resize();
       requestRender();
     },
     dispose() {
@@ -878,10 +1121,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       canvas.removeEventListener('pointerleave', onLeave);
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointerup', onUp);
+      for (const m of lineMaterials) m.dispose();
       base.dispose();
       imagery.dispose();
       imageryL.dispose();
-      borders.dispose();
       dataUniforms.uData.value.dispose();
       dataUniformsL.uData.value.dispose();
       vectorUniforms.uVec.value.dispose();
@@ -943,6 +1186,12 @@ export function Globe(props: Props) {
   useEffect(() => api.current?.setImagery(imagery), [imagery]);
   useEffect(() => api.current?.setMarkers(markers), [markers]);
   useEffect(() => api.current?.setHints(props.hints ?? []), [props.hints]);
+  const geo = props.geo ?? null;
+  const labelLayers = props.labelLayers;
+  useEffect(() => api.current?.setGeo(geo, labelLayers ?? { capitals: true, seas: true, rivers: true }), [geo, labelLayers]);
+  useEffect(() => api.current?.setOutlines(props.outlines ?? []), [props.outlines]);
+  const borderLines = props.borderLines ?? null;
+  useEffect(() => api.current?.setBorderLines(borderLines), [borderLines]);
   useEffect(() => api.current?.setVector(vector), [vector]);
   const compareImagery = compare?.imagery ?? null;
   const compareData = compare?.data ?? null;
