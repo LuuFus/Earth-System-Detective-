@@ -1409,7 +1409,8 @@ p {
   position: sticky;
   top: calc(-1 * var(--space-4));
   z-index: 1;
-  background: var(--color-panel);
+  background: var(--color-navy);
+  box-shadow: 0 calc(-1 * var(--space-4)) 0 var(--color-navy);
 }
 
 .verdict__why {
@@ -2488,7 +2489,7 @@ p {
   padding: var(--space-4);
   border: 1px solid var(--color-control-line);
   border-radius: var(--radius-chip);
-  background: var(--color-panel);
+  background: var(--color-navy);
   align-content: start;
 }
 
@@ -2828,6 +2829,11 @@ p {
 
 .forecast__rain {
   grid-area: rain;
+  white-space: nowrap;
+}
+
+.forecast__mm {
+  white-space: nowrap;
 }
 
 .forecast__extra {

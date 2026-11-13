@@ -295,10 +295,11 @@ export function WeatherPanel({ place, regionA, regionB, onPlace }: Props) {
                   </span>
                   <span className="forecast__rain">
                     {w.rainChance} {d.rainChance === null ? '—' : `${f0(d.rainChance)}%`}
-                    {d.rain > 0 && <span className="forecast__mm"> · {numberFormat(lang, 1, false)(d.rain)} {lang === 'uk' ? 'мм' : 'mm'}</span>}
                   </span>
                   <span className="forecast__extra">
-                    {storm && <strong className="forecast__storm">{w.thunder}</strong>} {w.gusts} {f0(d.gusts)} {lang === 'uk' ? 'м/с' : 'm/s'}
+                    {storm && <strong className="forecast__storm">{w.thunder} · </strong>}
+                    {d.rain > 0 && <span className="forecast__mm">{numberFormat(lang, 1, false)(d.rain)} {lang === 'uk' ? 'мм' : 'mm'} · </span>}
+                    {w.gusts} {f0(d.gusts)} {lang === 'uk' ? 'м/с' : 'm/s'}
                   </span>
                 </li>
               );

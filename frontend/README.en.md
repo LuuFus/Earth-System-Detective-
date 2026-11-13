@@ -34,9 +34,12 @@ with a Play button at the bottom, the analysis drawer on the right.
   once it has loaded (or after 2.5 s), so the globe never shows a mix of scales
   or a bare map. Layers sit on the same sphere as the map, so they do not slide
   up close. A frame is drawn only when something changed.
-- **Map**: the "Borders and country names" switch also turns on capitals (a
-  ring and a name), oceans and seas (italic) and rivers (blue lines and names),
-  each of which can be switched off. Data: Natural Earth (public domain), with
+- **Map**: the "Borders and country names" switch draws crisp vector borders
+  (a white line with a dark halo; Ukraine's point of view: no line across the
+  Perekop isthmus, a border in the Kerch Strait) and coastlines, and turns on
+  capitals (a small dot and a name; when the name has no room the dot stays),
+  oceans and seas (italic) and rivers (blue lines and names), each of the last
+  three of which can be switched off. Data: Natural Earth (public domain), with
   Crimea as part of Ukraine. Labels appear with camera height, and one that
   would overlap a more important one is hidden or moved aside.
 - **Under the pointer**: the coordinates and, from NASA POWER (MERRA-2), the

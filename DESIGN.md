@@ -33,8 +33,12 @@ reference stay; colour, layout and imagery below replace it.
 
 ## Map labels and pins (Natural Earth layers)
 
-- Capitals: a 7px ring (Star on Void) on the city with the name to its right,
-  Inter 11px. Seas: Source Serif italic in Sea label `#b9d8ff`, oceans 14px
+- Borders: vector lines from Natural Earth (Ukraine's point of view), a 1.6px
+  Star line over a 4px Void halo at 55%; disputed lines 1.2px Star at 55%;
+  coastlines 0.9px Star at 45%, hidden very close up where the imagery shows the
+  coast better.
+- Capitals: a 6px solid Star dot ringed 1.5px in Void, the name to its right in
+  Inter 500 11px; when the name collides the dot still shows. Seas: Source Serif italic in Sea label `#b9d8ff`, oceans 14px
   uppercase tracked 0.22em at 85%, big seas 13px, the rest 11px. Rivers: 1.3px
   lines in River `#6fb8ff` at 80% with Source Serif italic names in `#9fd0ff`.
 - Labels are ranked (markers and pins, oceans, big countries, big capitals,

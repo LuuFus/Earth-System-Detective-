@@ -22,33 +22,98 @@ One screen, no scrolling: NASA footage (sunrise over Earth from the ISS, Earth
 by day and by night, the PACE satellite being built and launched), the headline
 "For the Benefit of All" and a button into the 3D Earth. Ukrainian and English.
 
-### 3D Earth (`/explore`)
+### 3D Earth (`/explore`): the "Studio"
 
 ![3D Earth](docs/screenshots/globe.jpg)
 
-- **Rotate and zoom** with the mouse, wheel or fingers, down to about 380 km above
-  the surface. Closer in, the globe fetches a sharp NASA GIBS image of just the
-  visible area (Blue Marble, 500 m per pixel).
-- **Find a country**: type "Ukraine", "Japan" or a name in Ukrainian and the
-  camera flies there.
-- **Borders and country names**: international boundaries and coastlines from
-  NASA GIBS, country names in the site language.
+Tools on the left: **Layers, Cases, Analysis, Weather, Glossary, Share**; a
+timeline with Play at the bottom; the analysis drawer on the right.
 
-![Ukraine with borders and country names](docs/screenshots/ukraine.jpg)
+- **Rotate and zoom** with the mouse, wheel or fingers, down to about 95 km.
+  Up close the globe loads sharp NASA GIBS imagery for the visible area (Blue
+  Marble 500 m, then Landsat 30 m).
+- **Country search**: type "Ukraine", "Japan" or "Японія" and the camera flies
+  there.
+- **Borders and names**: crisp white borders with a dark halo (readable on any
+  imagery and at any zoom), coastlines, country names, **capitals** as small
+  dots, **oceans and seas** and **rivers** with names in Ukrainian or English.
+  Borders follow Ukraine's point of view: Crimea is part of Ukraine. Data:
+  Natural Earth.
+
+![Europe with borders, capitals, seas and rivers](docs/screenshots/map-labels.jpg)
+
+- **Values under the pointer**: the coordinates plus temperature, humidity,
+  precipitation and wind from NASA POWER for the month and year on the
+  timeline, over land and ocean.
+
+![NASA POWER values under the pointer over the Atlantic](docs/screenshots/readout.jpg)
+
+- **NASA data layers**: GISTEMP temperature anomaly (1880-2025), air
+  temperature, precipitation, soil moisture and humidity (NASA POWER), the ozone
+  hole, and over Ukraine NO₂, vegetation, land surface temperature and fires;
+  GIBS imagery for night lights and true colour. A separate layer shows the
+  occupation and hostilities in Ukraine from the official list.
+- **Hints**: red map pins mark notable events (Kakhovka, the Aral Sea, the
+  Chornobyl zone fires and more); the card says what happened and links NASA.
+
+### Comparing regions and countries
+
+Click any place (region A) and add region B, or pick **whole countries**: type
+a name or switch "A click on the globe picks: A country". The countries are
+outlined on the globe and the numbers come only from inside their borders. The
+drawer says in plain words what changed and by how much, shows a reliability
+light (the Mann-Kendall test), the rate of change (Theil-Sen slope) and which
+one changes faster.
+
+![Ukraine against Poland: air temperature 1981-2025](docs/screenshots/countries.jpg)
+
+### Years, months, days, and a chart you can stretch
+
+Chart views: **years**, **months**, **days** (daily NASA POWER data) or the
+**seasonal cycle**. For months and days the trend is checked with the seasonal
+Mann-Kendall test. The chart zooms with the wheel or buttons, pans with the
+mouse, has a navigator strip below, a dot per value and a full-screen mode.
+
+![Monthly temperature of Ukraine and Poland, zoomed to 1995-2011](docs/screenshots/chart-months.jpg)
+
+### "How it is computed"
+
+For each method: where it shows on screen, plain words, the formula, and the
+same arithmetic on your data: how many pairs of years went up and down, S,
+Var(S), Z, p, the slope, its confidence interval, and how many years a
+conclusion needs.
+
+![The Mann-Kendall test on Ukraine's data](docs/screenshots/methods.jpg)
+
+### Weather and hazards
+
+For any place: a 7-day forecast (rain, thunderstorms, gusts), the official
+**tornado** probability from the NOAA Storm Prediction Center (USA only: there
+are no official odds elsewhere, so we do not make them up), and how often rain,
+heat, frost or strong wind happen there from NASA POWER, 1981-2000 against
+2006-2025, with a Mann-Kendall trend test.
+
+![Weather for New York: forecast and NOAA tornado outlook](docs/screenshots/weather.jpg)
 
 ### Surface temperature layer (NASA GISTEMP v4)
 
-Temperature anomalies against 1951-1980 on a 2x2 degree grid, 1880-2025.
+Temperature anomalies against 1951-1980 on a 2°×2° grid, 1880-2025.
 
-- **Year**: the anomaly in one year.
+- **Year**: the anomaly for the chosen year.
 - **Compare**: the difference between two years, for example 2025 minus 1960.
-- **Trend**: the rate of change in every cell (degrees per decade, Theil-Sen
-  slope) tested with Mann-Kendall; cells with p of 0.05 or more are hatched.
-- Hover over or tap the globe to read a value; the legend shows the global mean.
+- **Trend**: the rate of change in every cell (°C per decade, Theil-Sen slope)
+  with a Mann-Kendall significance test. Cells that are not significant
+  (p ≥ 0.05) are hatched.
 
 ![Temperature difference: 2025 minus 1960](docs/screenshots/compare.jpg)
 
 ![Trend 1960-2025 with significance](docs/screenshots/trend.jpg)
+
+### Other tools
+
+From the analysis drawer the same region opens in NASA Worldview, Giovanni,
+Earthdata Search and the CUAHSI hydrology services (HydroShare, HydroClient),
+or downloads as a NASA POWER CSV.
 
 ### On a phone
 
@@ -83,6 +148,8 @@ and published to the `gh-pages` branch, which GitHub Pages serves.
 
 ## Data sources
 
-NASA GISS (GISTEMP v4), NASA GIBS, NASA Image and Video Library, NASA JSC Crew
-Earth Observations. This is not an official NASA website, and NASA does not
+NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI,
+MODIS, NASA FIRMS, NASA Image and Video Library, NASA JSC Crew Earth
+Observations; Natural Earth maps (public domain); Open-Meteo forecasts; NOAA
+Storm Prediction Center tornado outlooks. This is not an official NASA website, and NASA does not
 endorse the project.
