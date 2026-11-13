@@ -193,7 +193,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         regionA: c.regionA ?? null,
         regionB: c.regionB ?? null,
         chartVariable: c.analysisVariable ?? chartFor(c.variable, state.chartVariable),
-        chartView: 'year',
+        chartView: c.chartView ?? 'year',
         caseId: c.id,
         picking: null,
         analysisOpen: true,

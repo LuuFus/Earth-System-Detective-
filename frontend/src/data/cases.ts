@@ -28,6 +28,8 @@ export type Case = {
   war?: boolean;
   /** Opens the before/after shutter with this year on the left (`year` is on the right). */
   compare?: number;
+  /** How the chart opens (years by default). */
+  chartView?: 'year' | 'month' | 'cycle';
   sources: { label: string; url: string }[];
 };
 
@@ -37,7 +39,44 @@ const OSM = { label: '© OpenStreetMap contributors', url: 'https://www.openstre
 const GISTEMP = { label: 'NASA GISS, GISTEMP v4', url: 'https://data.giss.nasa.gov/gistemp/' };
 const POWER = { label: 'NASA POWER, MERRA-2', url: 'https://power.larc.nasa.gov/' };
 
+const MODIS_LST = { label: 'MODIS Terra MOD11C3 (LP DAAC)', url: 'https://lpdaac.usgs.gov/products/mod11c3v061/' };
+
 export const cases: Case[] = [
+  {
+    id: 'usa-canada',
+    title: { uk: 'Сусіди: США і Канада', en: 'Neighbours: the USA and Canada' },
+    story: {
+      uk: 'Дві великі країни на одному материку. Порівняйте, наскільки нагріта поверхня землі в кожній з них, чи змінюється вона і де швидше. Числа для обох країн пораховано однаково з температури поверхні NASA POWER (MERRA-2); карта показує денну температуру поверхні з MODIS у липні.',
+      en: 'Two big countries on one continent. Compare how warm the ground is in each, whether it is changing and where faster. Both countries are computed the same way from the NASA POWER (MERRA-2) skin temperature; the map shows the daytime MODIS surface temperature in July.',
+    },
+    variable: 'lst',
+    year: 2025,
+    from: 2001,
+    to: 2025,
+    borders: true,
+    regionA: { kind: 'country', code: 'US', lat: 39.54, lon: -97.48, box: { s: 18.97, w: -178.19, n: 71.41, e: 179.78 } },
+    regionB: { kind: 'country', code: 'CA', lat: 60.32, lon: -101.91, box: { s: 41.67, w: -141.0, n: 83.12, e: -52.65 } },
+    camera: { lat: 50, lon: -100, distance: 2.7 },
+    sources: [POWER, MODIS_LST],
+  },
+  {
+    id: 'kyiv-odesa',
+    title: { uk: 'Два міста: Київ і Одеса', en: 'Two cities: Kyiv and Odesa' },
+    story: {
+      uk: 'Одеса стоїть на березі Чорного моря, Київ — далеко від нього. Подивіться на сезонний цикл: у якому місті тепліше взимку, у якому влітку, і де температура змінюється за рік сильніше. Потім перемкніть графік на «Роки», щоб побачити, де швидше теплішає.',
+      en: 'Odesa stands on the Black Sea coast, Kyiv far from it. Look at the seasonal cycle: which city is warmer in winter, which in summer, and where the temperature swings more over a year. Then switch the chart to "Years" to see where it warms faster.',
+    },
+    variable: 't2m',
+    year: 2025,
+    from: 1981,
+    to: 2025,
+    borders: true,
+    chartView: 'cycle',
+    regionA: { kind: 'point', lat: 50.45, lon: 30.52, radiusKm: 0, name: { uk: 'Київ', en: 'Kyiv' } },
+    regionB: { kind: 'point', lat: 46.48, lon: 30.73, radiusKm: 0, name: { uk: 'Одеса', en: 'Odesa' } },
+    camera: { lat: 48.4, lon: 31, distance: 1.6 },
+    sources: [POWER],
+  },
   {
     id: 'arctic',
     title: { uk: 'Арктика гріється найшвидше', en: 'The Arctic warms fastest' },

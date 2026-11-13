@@ -42,6 +42,16 @@ export type TileSource = {
    * when `under` is given, filled from another satellite's image of the same day.
    */
   gaps?: { under: ((z: number, row: number, col: number) => string) | null };
+  /**
+   * Coarse data (a 0.5° model grid, a 1° satellite grid): only this level is loaded, about one
+   * data cell a pixel, and stretched smoothly over the globe with no close-ups, so the cells do
+   * not show as big squares when zoomed in.
+   */
+  native?: number;
+  /** With `native`: grow the data this many pixels into empty neighbours (a land mask then cuts the coast). */
+  dilate?: number;
+  /** Daily swath layers: the same layer on nearby days, nearest first, fills the gaps between orbits. */
+  fills?: ((z: number, row: number, col: number) => string)[];
 };
 
 export function wmtsSource(layer: string, matrixSet: string, format: 'image/png' | 'image/jpeg', time = 'default'): TileSource {
@@ -67,6 +77,21 @@ export function gapFilledSource(main: TileSource, under: TileSource | null): Til
     transparent: true,
     gaps: { under: under ? (z, r, c) => under.url(z, r, c) : null },
   };
+}
+
+/** A daily layer whose orbit gaps are filled from `others`, the same layer on nearby days, nearest first. */
+export function daysSource(main: TileSource, others: TileSource[]): TileSource {
+  if (!others.length) return main;
+  return {
+    ...main,
+    id: `${main.id}+${others.map((o) => o.id).join('+')}`,
+    fills: others.map((o) => (z: number, r: number, c: number) => o.url(z, r, c)),
+  };
+}
+
+/** A coarse layer drawn smoothly from one level (see `TileSource.native`). */
+export function nativeSource(main: TileSource, level: number, dilate = 0): TileSource {
+  return { ...main, id: `${main.id}@${level}${dilate ? `+${dilate}` : ''}`, native: level, dilate, maxLevel: level };
 }
 
 /** `low` up to its finest level, then `high` for the levels beyond it (base map: Blue Marble, then Landsat). */
@@ -237,16 +262,47 @@ async function composeGaps(mainUrl: string, underUrl: string | null): Promise<Pi
   return canvas;
 }
 
+/** A day's tile with its gaps filled from the other days' tiles, nearest day first. */
+async function composeDays(mainUrl: string, fillUrls: string[]): Promise<Pic | null> {
+  const [main, ...fills] = await Promise.all([loadTile(mainUrl), ...fillUrls.map(loadTile)]);
+  if (!main && !fills.some(Boolean)) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = TILE;
+  const ctx = canvas.getContext('2d')!;
+  if (main) ctx.drawImage(main, 0, 0, TILE, TILE);
+  // Each later day goes under everything drawn so far, so it shows only where they are empty.
+  ctx.globalCompositeOperation = 'destination-over';
+  for (const fill of fills) if (fill) ctx.drawImage(fill, 0, 0, TILE, TILE);
+  return canvas;
+}
+
 function tileKey(source: TileSource, z: number, r: number, c: number): string {
   const url = source.url(z, r, c);
+  if (source.fills) return `days:${url}|${source.fills.map((f) => f(z, r, c)).join('|')}`;
   return source.gaps ? `gaps:${url}|${source.gaps.under?.(z, r, c) ?? ''}` : url;
 }
 
 function fetchTile(source: TileSource, z: number, r: number, c: number): Promise<Pic | null> {
   const url = source.url(z, r, c);
+  if (source.fills) return remember(tileKey(source, z, r, c), () => composeDays(url, source.fills!.map((f) => f(z, r, c))), true);
   if (!source.gaps) return loadTile(url);
   const under = source.gaps.under?.(z, r, c) ?? null;
   return remember(tileKey(source, z, r, c), () => composeGaps(url, under), true);
+}
+
+/** Grows the drawn pixels of a canvas into the empty ones around them, `radius` pixels deep. */
+function dilate(canvas: HTMLCanvasElement, width: number, height: number, radius: number): void {
+  const copy = document.createElement('canvas');
+  copy.width = width;
+  copy.height = height;
+  copy.getContext('2d')!.drawImage(canvas, 0, 0, width, height, 0, 0, width, height);
+  const ctx = canvas.getContext('2d')!;
+  const offsets: [number, number][] = [];
+  for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) if (dx || dy) offsets.push([dx, dy]);
+  offsets.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+  ctx.globalCompositeOperation = 'destination-over';
+  for (const [dx, dy] of offsets) ctx.drawImage(copy, dx, dy);
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 type Canvas = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; texture: THREE.CanvasTexture };
@@ -362,7 +418,9 @@ export class TiledLayer {
       this.bounds.set(0, 0, 0, 0);
       this.onChange();
       const target = this.global;
-      if (source.progressive && this.globalLevel > 1) {
+      if (source.native !== undefined) {
+        void this.loadNative(gen, target.canvas, target.ctx);
+      } else if (source.progressive && this.globalLevel > 1) {
         void this.loadGlobalLevel(this.globalLevel - 1, gen, target.canvas, target.ctx).then(() => {
           if (gen === this.globalGen) void this.loadGlobalLevel(this.globalLevel, gen, target.canvas, target.ctx);
         });
@@ -395,7 +453,45 @@ export class TiledLayer {
       this.onChange();
     };
     this.globalTimer = window.setTimeout(swap, GLOBAL_WAIT);
-    void this.loadGlobalLevel(this.globalLevel, gen, back, bctx, true).then(swap);
+    const loading = source.native !== undefined ? this.loadNative(gen, back, bctx, true) : this.loadGlobalLevel(this.globalLevel, gen, back, bctx, true);
+    void loading.then(swap);
+  }
+
+  /** Coarse layer: its own level into a small canvas, grown if asked, then stretched smoothly over the global map. */
+  private async loadNative(gen: number, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, offscreen = false): Promise<void> {
+    const source = this.source!;
+    const z = source.native!;
+    const s = tileSpan(z);
+    const cols = Math.ceil(360 / s);
+    const rows = Math.ceil(180 / s);
+    const small = document.createElement('canvas');
+    small.width = cols * TILE;
+    small.height = rows * TILE;
+    const sctx = small.getContext('2d')!;
+    const jobs: Promise<void>[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const job = fetchTile(source, z, r, c).then((img) => {
+          if (img && gen === this.globalGen) sctx.drawImage(img, c * TILE, r * TILE, TILE, TILE);
+        });
+        this.track(job, this.globalJobs);
+        jobs.push(job);
+      }
+    }
+    await Promise.all(jobs);
+    if (gen !== this.globalGen) return;
+    // The tiles cover more than the globe: only 360° by 180° of them is the map.
+    const width = Math.round((360 / s) * TILE);
+    const height = Math.round((180 / s) * TILE);
+    if (source.dilate) dilate(small, width, height, source.dilate);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(small, 0, 0, width, height, 0, 0, canvas.width, canvas.height);
+    if (!offscreen) {
+      this.dirtyGlobal = true;
+      this.scheduleFlush();
+    }
   }
 
   private loadGlobalLevel(z: number, gen: number, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, offscreen = false): Promise<unknown> {
@@ -441,7 +537,7 @@ export class TiledLayer {
 
   /** Level and tile range of the close-up for a view, or null when the global map is enough. */
   private patchFor(source: TileSource, box: Box | null, screenPixels: number): { z: number; range: Range } | null {
-    if (!box || box.e <= box.w) return null;
+    if (!box || box.e <= box.w || source.native !== undefined) return null;
     const degPerPixel = (box.e - box.w) / Math.max(256, screenPixels);
     let z = Math.min(source.maxLevel, Math.ceil(Math.log2(288 / (TILE * degPerPixel))));
     let range = this.range(box, z);
@@ -607,9 +703,10 @@ export class TiledLayer {
    */
   preload(source: TileSource, wait = 6000): Promise<void> {
     const jobs: Promise<unknown>[] = [];
-    const s = tileSpan(this.globalLevel);
+    const level = source.native ?? this.globalLevel;
+    const s = tileSpan(level);
     if (!source.area) {
-      for (let r = 0; r < Math.ceil(180 / s); r++) for (let c = 0; c < Math.ceil(360 / s); c++) jobs.push(fetchTile(source, this.globalLevel, r, c));
+      for (let r = 0; r < Math.ceil(180 / s); r++) for (let c = 0; c < Math.ceil(360 / s); c++) jobs.push(fetchTile(source, level, r, c));
       const plan = this.patchFor(source, this.lastBox, this.lastPixels);
       if (plan) {
         for (let r = plan.range.r0; r <= plan.range.r1; r++) for (let c = plan.range.c0; c <= plan.range.c1; c++) jobs.push(fetchTile(source, plan.z, r, c));

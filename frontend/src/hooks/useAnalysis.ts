@@ -31,12 +31,14 @@ export type RegionResult = {
 export type AnalysisState = {
   status: 'idle' | 'loading' | 'ready' | 'error';
   results: RegionResult[];
+  /** Set when the numbers come from the variable's fallback source (a region outside its grid). */
+  fallback: Text | null;
   /** Where the numbers exist, when a region is outside them. */
   coverage: Text | null;
   retry: () => void;
 };
 
-type Loaded = { key: string; a: Series | null; b: Series | null; da: DailySeries | null; db: DailySeries | null };
+type Loaded = { key: string; a: Series | null; b: Series | null; da: DailySeries | null; db: DailySeries | null; fallback: Text | null };
 
 /** Loads the series for regions A and B and computes the trend over the period for the chosen view. */
 export function useAnalysis(
@@ -66,10 +68,19 @@ export function useAnalysis(
     setStatus('loading');
     setCoverage(null);
     const day = (r: Region | null) => (daily && r ? loadDaily(variable, r, from, to) : Promise.resolve(null));
-    Promise.all([loadSeries(variable, regionA, season), regionB ? loadSeries(variable, regionB, season) : Promise.resolve(null), day(regionA), day(regionB)])
-      .then(([a, b, da, db]) => {
+    const both = (v: typeof variable) => Promise.all([loadSeries(v, regionA, season), regionB ? loadSeries(v, regionB, season) : Promise.resolve(null)]);
+    const fallback = variable.series.kind === 'grid' ? variable.series.fallback : undefined;
+    both(variable)
+      .then((ab) => ({ ab, note: null as Text | null }))
+      .catch((e: unknown) => {
+        // A region outside the grid: both regions from the fallback source, like for like.
+        if (!(e instanceof OutsideCoverage) || !fallback) throw e;
+        return both({ ...variable, id: `${variable.id}-power` as VariableId, series: fallback.source }).then((ab) => ({ ab, note: fallback.note }));
+      })
+      .then(async ({ ab: [a, b], note }) => {
+        const [da, db] = await Promise.all([day(regionA), day(regionB)]);
         if (cancelled) return;
-        setLoaded({ key, a, b, da, db });
+        setLoaded({ key, a, b, da, db, fallback: note });
         setStatus('ready');
       })
       .catch((e: unknown) => {
@@ -108,5 +119,6 @@ export function useAnalysis(
   }, [loaded, key, regionA, regionB, from, to, view]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
-  return { status, results, coverage, retry };
+  const fallbackNote = loaded?.key === key ? loaded.fallback : null;
+  return { status, results, coverage, retry, fallback: fallbackNote };
 }

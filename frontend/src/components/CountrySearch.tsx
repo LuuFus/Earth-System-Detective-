@@ -1,14 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { countries, type Country } from '../data/countries';
+import { aliasOptions, countryIndex, findCountry } from '../data/countryNames';
 import { useI18n } from '../i18n/I18n';
-
-const normalise = (s: string) =>
-  s
-    .toLocaleLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[’'`ʼ]/g, '')
-    .trim();
 
 /** Country search: suggestions in the site language, matches Ukrainian, English or the ISO code. */
 export function CountrySearch({ onFound }: { onFound: (country: Country) => void }) {
@@ -16,36 +9,16 @@ export function CountrySearch({ onFound }: { onFound: (country: Country) => void
   const [value, setValue] = useState('');
   const [missing, setMissing] = useState(false);
 
-  const index = useMemo(() => {
-    const local = new Intl.DisplayNames([lang], { type: 'region' });
-    const uk = new Intl.DisplayNames(['uk'], { type: 'region' });
-    const en = new Intl.DisplayNames(['en'], { type: 'region' });
-    return countries
-      .map((c) => {
-        const label = local.of(c.code) ?? c.name;
-        const keys = [label, uk.of(c.code), en.of(c.code), c.name, c.code].filter(Boolean).map((k) => normalise(k as string));
-        return { country: c, label, keys };
-      })
-      .sort((a, b) => a.label.localeCompare(b.label, lang));
-  }, [lang]);
-
-  const find = (query: string) => {
-    const q = normalise(query);
-    if (!q) return null;
-    return (
-      index.find((e) => e.keys.includes(q)) ??
-      index.find((e) => e.keys.some((k) => k.startsWith(q))) ??
-      index.find((e) => e.keys.some((k) => k.includes(q))) ??
-      null
-    );
-  };
+  // Official names in both languages, the code, and everyday names ("США", "Америка", "UK").
+  const index = useMemo(() => countryIndex(countries, (c) => c.code, lang, (c) => [c.name]), [lang]);
+  const aliases = useMemo(() => aliasOptions(index, lang), [index, lang]);
 
   const go = (query: string) => {
-    const hit = find(query);
+    const hit = findCountry(index, query);
     setMissing(!hit);
     if (hit) {
       setValue(hit.label);
-      onFound(hit.country);
+      onFound(hit.item);
     }
   };
 
@@ -79,13 +52,16 @@ export function CountrySearch({ onFound }: { onFound: (country: Country) => void
           setValue(next);
           setMissing(false);
           // Picking a suggestion from the list fills the exact name: fly straight away.
-          const exact = index.find((entry) => entry.label === next);
-          if (exact) onFound(exact.country);
+          const exact = findCountry(index, next, true);
+          if (exact && (exact.label === next || aliases.some((a) => a.value === next))) onFound(exact.item);
         }}
       />
       <datalist id="country-list">
         {index.map((e) => (
-          <option key={e.country.code} value={e.label} />
+          <option key={e.code} value={e.label} />
+        ))}
+        {aliases.map((a) => (
+          <option key={`${a.value}-${a.label}`} value={a.value} label={a.label} />
         ))}
       </datalist>
       <button type="submit" className="search__go">

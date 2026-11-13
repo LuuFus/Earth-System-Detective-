@@ -23,6 +23,8 @@ type Labels = {
   collapse: string;
   navigator: string;
   zoomed: (a: string, b: string) => string;
+  /** Legend entry for the dashed line. */
+  trend: string;
 };
 
 type Props = {
@@ -434,6 +436,18 @@ export const Chart = forwardRef<ChartHandle, Props>(function Chart(props, ref) {
 
   const body = (
     <div className={`chart${expanded ? ' chart--expanded' : ''}`} ref={hostRef}>
+      <ul className="chart__legend chart__legend--series">
+        {sorted.map((s) => (
+          <li key={s.id}>
+            <span className={`chart__key chart__key--${s.id.toLowerCase()}`} aria-hidden="true" />
+            <strong>{s.id}</strong> {s.name}
+          </li>
+        ))}
+        <li>
+          <span className="chart__swatch chart__swatch--trend" aria-hidden="true" />
+          {labels.trend}
+        </li>
+      </ul>
       <div className="chart__tools">
         <span className="chart__window">{zoomed ? labels.zoomed(dateLabel(v0), dateLabel(v1)) : ''}</span>
         <button type="button" className="chart__tool" aria-label={labels.zoomIn} title={labels.zoomIn} onClick={() => zoomAt((v0 + v1) / 2, 0.6)}>

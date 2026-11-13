@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ALPHA, MIN_YEARS, verdict, type TrendStats } from '../../analysis/stats';
+import { MIN_YEARS, verdict, type TrendStats } from '../../analysis/stats';
 import type { RegionResult } from '../../hooks/useAnalysis';
 import { useI18n } from '../../i18n/I18n';
 import { digitsFor, formatP, numberFormat, regionName } from '../../i18n/format';
@@ -14,7 +14,7 @@ type Props = {
 };
 
 /** One method: where it shows on screen, the idea in plain words, the formula, and the user's numbers. */
-function Method({ id, title, where, idea, formula, children }: { id: string; title: string; where: string; idea: ReactNode; formula: ReactNode; children?: ReactNode }) {
+function Method({ id, title, where, idea, example, formula, children }: { id: string; title: string; where: string; idea: ReactNode; example?: string; formula: ReactNode; children?: ReactNode }) {
   const { lang } = useI18n();
   return (
     <section className="method-card" id={id} aria-labelledby={`${id}-title`}>
@@ -25,6 +25,11 @@ function Method({ id, title, where, idea, formula, children }: { id: string; tit
         <span className="method-card__tag">{lang === 'uk' ? 'Де на екрані' : 'Where it shows'}</span> {where}
       </p>
       <div className="method-card__idea">{idea}</div>
+      {example && (
+        <p className="method-card__example">
+          <span className="method-card__tag">{T[lang].example}</span> {example}
+        </p>
+      )}
       <div className="formula" role="math">
         {formula}
       </div>
@@ -51,149 +56,169 @@ function Yours({ title, rows }: { title: string; rows: [ReactNode, ReactNode][] 
 
 const T = {
   uk: {
-    intro: 'Тут показано, як сайт перетворює дані NASA на висновок «тренд є / тренду немає». Кожна формула — з поясненням простими словами і з підставленими числами з вашого графіка.',
-    noData: 'Оберіть регіон на глобусі, і тут з’являться обчислення на його даних.',
-    yours: (slot: string, name: string) => `На ваших даних, ${slot}: ${name}`,
+    intro: 'Тут пояснено простими словами, як сайт вирішує, чи щось справді змінюється. Під кожною формулою — приклад із життя і ті самі обчислення на ваших даних.',
+    noData: 'Оберіть місце чи країну на глобусі, і тут з’являться обчислення на їхніх даних.',
+    yours: (slot: string, name: string) => `Ваші числа, ${slot}: ${name}`,
+    example: 'Приклад',
     region: {
-      title: '1. Одне число для цілого регіону',
-      where: 'кожна точка на графіку; рядок «Як пораховано» під графіком',
-      idea: 'Дані NASA лежать на сітці клітинок. Для точки беремо її клітинку, для кола чи країни — середнє з усіх клітинок усередині. Клітинки біля полюсів менші за площею, тому кожна має вагу, рівну косинусу її широти: так середнє чесно враховує площу.',
+      title: '1. Одне число для цілої країни чи регіону',
+      where: 'кожна точка на графіку',
+      idea: 'Супутники й моделі NASA дають значення в багатьох точках-клітинках. Щоб отримати одне число для країни, беремо всі клітинки всередині її кордонів і рахуємо середнє. Клітинки біля полюсів займають на Землі менше місця, тому вони важать трохи менше (це й означає «вага» w = cos φ).',
+      example: 'Це як середня оцінка класу: складаєте всі оцінки й ділите на кількість учнів.',
     },
     mk: {
-      title: '2. Тест Манна-Кендалла: чи є тренд',
-      where: 'світлофор «Зміна надійна / ще не надійна» і p у «Подробицях»',
-      idea: 'Порівнюємо кожен рік з кожним наступним роком: чи значення зросло (+1), спало (−1) чи не змінилося (0). Якщо тренду немає, зростань і спадів буде приблизно порівну і S буде близько нуля. Чим більше S відхиляється від нуля, тим менш імовірно, що це випадковість. Тест не вимагає, щоб дані лягали на пряму лінію, і майже не реагує на окремі дуже незвичні роки.',
-      steps: 'Як рахується крок за кроком',
-      step1: 'Беремо всі пари (i, j), де рік j пізніший за рік i.',
-      step2: 'Для кожної пари: +1, якщо пізніше значення більше; −1, якщо менше; 0, якщо рівне. S — сума.',
-      step3: 'Var(S) — наскільки розкидалося б S, якби тренду не було (з поправкою на однакові значення t).',
-      step4: 'Z — скільки «стандартних відхилень» S від нуля; p — імовірність отримати таке або ще більше |Z| випадково.',
-      step5: `Висновок: якщо p < ${ALPHA}, зміну вважаємо надійною. Ще потрібно щонайменше ${MIN_YEARS} років даних.`,
+      title: '2. Тест Манна-Кендалла: чи справді є зміна',
+      where: 'зелений чи жовтий світлофор «Зміна надійна / ще не надійна»',
+      idea: 'Тест відповідає на питання: значення справді ростуть (чи падають), чи просто випадково стрибають угору-вниз?',
+      steps: 'Як він рахує',
+      step1: 'Беремо кожну пару років, наприклад 2001 і 2015.',
+      step2: 'Якщо пізніший рік більший — ставимо +1, якщо менший — −1, якщо однаковий — 0.',
+      step3: 'Усе додаємо — виходить число S. Якщо зміни немає, плюсів і мінусів буде приблизно порівну, і S буде близько нуля.',
+      step4: 'Що далі S від нуля, то менше шансів, що це випадковість. Цей шанс називають p.',
+      step5: `Якщо p менше за 0,05 (5 шансів зі 100), кажемо: зміна надійна. А ще треба щонайменше ${MIN_YEARS} років вимірювань.`,
+      example: 'Якщо щороку міряти свій зріст, майже кожна пара років дасть «+1»: S буде великим, а p — крихітним. Це явна зміна.',
       pairs: 'пар порівняно',
-      up: 'зросло',
-      down: 'спало',
-      tie: 'однаково',
-      result: (v: string) => (v === 'significant' ? 'p менше 0,05 — тренд надійний.' : v === 'weak' ? 'p не менше 0,05 — випадковістю це пояснити ще можна.' : 'Замало років для висновку.'),
+      up: 'зросло (+1)',
+      down: 'спало (−1)',
+      tie: 'однаково (0)',
+      result: (v: string) => (v === 'significant' ? 'p менше 0,05 — зміна надійна.' : v === 'weak' ? 'p не менше 0,05 — це ще можуть бути випадкові стрибки.' : 'Замало років, щоб щось сказати.'),
     },
     seasonal: {
-      title: '3. Сезонний тест Манна-Кендалла (для місяців і днів)',
-      where: 'вигляд графіка «Місяці» і «Дні»',
-      idea: 'У місячних даних є сезонний цикл: липень завжди тепліший за січень. Звичайний тест сприйняв би це як «зміну», тому сезонна версія (Hirsch, Slack, Smith, 1982) порівнює кожен місяць лише з тим самим місяцем інших років: січень із січнями, липень із липнями. S і Var(S) — суми по 12 місяцях. Добові дані спершу зводимо до місячних середніх: сусідні дні надто схожі між собою, і тест на сирих днях давав би хибну певність.',
-      active: 'Зараз увімкнено: так, графік показує місяці або дні.',
-      inactive: 'Зараз не використовується: графік показує роки.',
+      title: '3. Як не сплутати пори року зі зміною',
+      where: 'графік «Місяці» і «Дні»',
+      idea: 'Влітку завжди тепліше, ніж узимку — це пори року, а не зміна клімату. Тому січень порівнюємо лише з іншими січнями, липень — лише з липнями, і так для всіх 12 місяців. Потім результати 12 місяців додаємо. Для днів спершу рахуємо середнє кожного місяця: сусідні дні надто схожі один на одного.',
+      example: 'Порівнювати липень із січнем — як порівнювати свій зріст у кросівках і босоніж: різниця є, але ти від цього не виріс.',
+      active: 'Зараз увімкнено: графік показує місяці або дні.',
+      inactive: 'Зараз не потрібне: графік показує роки.',
     },
     sen: {
-      title: '4. Нахил Тейла-Сена: наскільки швидко',
-      where: '«Швидкість зміни», пунктирна лінія тренду, плитка «Зміна за період»',
-      idea: 'Для кожної пари років рахуємо нахил: на скільки змінилося значення за рік. Медіана (середнє за порядком) усіх цих нахилів і є швидкість тренду. Один дуже спекотний чи дощовий рік майже не зсуває медіану, тому оцінка стійка. Довірчий інтервал 95% беремо з тих самих нахилів (метод Gilbert, 1987).',
-      slopes: 'нахилів',
+      title: '4. Наскільки швидко змінюється',
+      where: '«Швидкість зміни», пунктирна лінія на графіку, плитка «Зміна за період»',
+      idea: 'Для кожної пари років рахуємо, на скільки значення змінювалося за один рік. Ставимо всі ці числа в ряд від найменшого до найбільшого і беремо те, що посередині (медіану). Один дуже дивний рік, наприклад рекордна спека, майже не зсуває середину ряду.',
+      example: 'Якщо ти виріс зі 140 до 150 см за 5 років, швидкість — 2 см на рік, тобто 20 см за 10 років.',
+      slopes: 'швидкостей порівняно',
       perYear: 'за рік',
-      ci: 'довірчий інтервал 95%',
+      ci: 'найімовірніше між',
       change: (a: number, b: number) => `зміна за ${a}-${b}`,
     },
     ols: {
-      title: '5. Лінійна регресія і t-тест: друга думка',
+      title: '5. Друга перевірка: пряма лінія',
       where: '«Подробиці для тих, хто знає статистику»',
-      idea: 'Класичний спосіб: пряма, що мінімізує суму квадратів відхилень. t-тест перевіряє, чи її нахил відрізняється від нуля. Ми показуємо його поруч із Манном-Кендаллом: якщо обидва кажуть одне, висновок ще надійніший. R² — яку частку коливань пояснює пряма.',
+      idea: 'Ще один спосіб: провести пряму лінію якомога ближче до всіх точок і перевірити, чи вона нахилена. R² показує, яку частину стрибків пояснює ця лінія (від 0 до 1). Якщо обидва способи кажуть одне й те саме, висновку можна вірити більше.',
+      example: 'Як спитати двох учителів: якщо обидва поставили «відмінно», оцінці віриш більше.',
       slope: 'нахил',
     },
     years: {
-      title: '6. Скільки років потрібно, щоб помітити тренд',
-      where: 'фрази «певності вистачить приблизно через N років» і «можна надійно помітити за N років»',
-      idea: 'Формула Weatherhead та ін. (1998): що слабший тренд ω і що сильніший «шум» σ (коливання навколо лінії), то довше треба спостерігати. φ — наскільки сусідні роки схожі між собою: якщо тепле літо часто йде за теплим, корисної інформації менше, і років треба більше.',
-      sigma: 'шум σ (розкид навколо лінії)',
-      phi: 'схожість сусідніх значень φ',
-      omega: 'тренд ω за рік',
+      title: '6. Скільки років треба спостерігати',
+      where: 'фраза «певності вистачить приблизно через N років»',
+      idea: 'Що слабша зміна ω і що сильніше значення стрибають від року до року (це «шум» σ), то довше треба спостерігати, щоб побачити зміну. φ показує, наскільки сусідні роки схожі між собою: тоді кожен новий рік дає менше нової інформації.',
+      example: 'Як почути тихий звук у галасливому класі: що галасливіше і що тихіший звук, то довше доведеться слухати.',
+      sigma: 'шум σ (наскільки стрибає)',
+      phi: 'схожість сусідніх років φ',
+      omega: 'зміна ω за рік',
       need: 'потрібно років',
-      have: 'є років',
+      have: 'вже є років',
     },
     band: {
-      title: '7. Продовження лінії тренду (смуга праворуч)',
-      where: 'світла смуга і пунктир праворуч від періоду на графіку «Роки»',
-      idea: 'Це не прогноз погоди: лише куди веде лінія, якщо все триватиме так само. Смуга — 95% діапазон для окремого року: що далі від даних, то вона ширша, бо невизначеність нахилу множиться на відстань.',
+      title: '7. Що буде далі, якщо все триватиме так само',
+      where: 'світла смуга праворуч на графіку «Роки»',
+      idea: 'Це не прогноз погоди, а просто продовження лінії. Смуга показує, куди найімовірніше потрапить окремий рік. Що далі в майбутнє, то вона ширша, бо ми менш певні.',
+      example: 'Якщо ти щороку виростаєш на 2 см, то наступного року, найімовірніше, будеш на 1–3 см вищим, але не на 20.',
     },
     cycle: {
-      title: '8. Сезонний цикл і норма',
-      where: 'вигляд «Сезонний цикл», плитка «Останній рік»',
-      idea: 'Норма місяця — його середнє за всі роки періоду. «Останній рік» показує, на скільки він вище чи нижче середнього. Аномалія GISTEMP рахується від норми 1951-1980 років.',
+      title: '8. «Норма» і сезонний цикл',
+      where: 'графік «Сезонний цикл», плитка «Останній рік»',
+      idea: 'Норма місяця — його звичайне значення, середнє за всі роки. Відхилення (аномалія) — на скільки цей рік вищий чи нижчий за норму.',
+      example: 'Якщо липень зазвичай 21 °C, а цього року був 23 °C, то він на 2 °C тепліший за норму.',
     },
     weather: {
-      title: '9. Імовірність явищ погоди (панель «Погода»)',
+      title: '9. Як часто щось буває (панель «Погода»)',
       where: 'таблиця «Як часто тут буває»',
-      idea: 'Імовірність — частка днів місяця, у які явище було: k днів із дощем із N днів листопада за 20 років. Порівнюємо 1981-2000 і 2006-2025, а тренд кількості таких днів щороку перевіряє той самий тест Манна-Кендалла.',
+      idea: 'Імовірність — це частка днів, коли явище було, з усіх днів. Порівнюємо 1981–2000 і 2006–2025 роки, а тест Манна-Кендалла перевіряє, чи таких днів справді стає більше чи менше.',
+      example: 'Якщо за 20 листопадів було 600 днів і 180 з них дощові, то шанс дощу в листопаді — 180 ÷ 600 = 30%.',
     },
   },
   en: {
-    intro: 'This is how the site turns NASA data into a "trend / no trend" conclusion. Each formula comes with plain words and with the numbers from your chart filled in.',
-    noData: 'Pick a region on the globe and the computations on its data appear here.',
-    yours: (slot: string, name: string) => `With your data, ${slot}: ${name}`,
+    intro: 'Here, in plain words, is how the site decides whether something is really changing. Under each formula there is an everyday example and the same arithmetic on your data.',
+    noData: 'Pick a place or a country on the globe and the arithmetic on its data appears here.',
+    yours: (slot: string, name: string) => `Your numbers, ${slot}: ${name}`,
+    example: 'Example',
     region: {
-      title: '1. One number for a whole region',
-      where: 'every point of the chart; the "How it is computed" line under the chart',
-      idea: 'NASA data sit on a grid of cells. A point uses its own cell; a circle or a country uses the mean of all cells inside. Cells near the poles cover less area, so each is weighted by the cosine of its latitude: that way the mean is fair to area.',
+      title: '1. One number for a whole country or region',
+      where: 'every point of the chart',
+      idea: 'NASA satellites and models give values in many grid cells. To get one number for a country we take every cell inside its borders and average them. Cells near the poles cover less of the Earth, so they count a little less (that is what the weight w = cos φ means).',
+      example: 'It is like a class average: add up all the marks and divide by the number of pupils.',
     },
     mk: {
-      title: '2. The Mann-Kendall test: is there a trend',
-      where: 'the "reliable / not reliable yet" light and p in the details',
-      idea: 'Every year is compared with every later year: did the value go up (+1), down (−1) or stay the same (0)? With no trend, ups and downs come out about even and S stays near zero. The further S is from zero, the less likely it is chance. The test does not need the data to follow a straight line and barely reacts to single unusual years.',
-      steps: 'Step by step',
-      step1: 'Take every pair (i, j) where year j comes after year i.',
-      step2: 'For each pair: +1 if the later value is larger, −1 if smaller, 0 if equal. S is the sum.',
-      step3: 'Var(S) is how much S would scatter if there were no trend (corrected for equal values t).',
-      step4: 'Z is how many standard deviations S is from zero; p is the chance of an |Z| this large or larger by luck.',
-      step5: `Conclusion: if p < ${ALPHA}, the change is called reliable. It also needs at least ${MIN_YEARS} years of data.`,
+      title: '2. The Mann-Kendall test: is there really a change',
+      where: 'the green or yellow light "reliable / not reliable yet"',
+      idea: 'The test answers one question: are the values really going up (or down), or just jumping up and down by chance?',
+      steps: 'How it counts',
+      step1: 'Take every pair of years, for example 2001 and 2015.',
+      step2: 'If the later year is bigger, write +1; if smaller, −1; if equal, 0.',
+      step3: 'Add them all up: that is S. With no change there are about as many pluses as minuses, and S stays near zero.',
+      step4: 'The further S is from zero, the smaller the chance that it is luck. That chance is called p.',
+      step5: `If p is below 0.05 (5 chances in 100), we say the change is reliable. It also needs at least ${MIN_YEARS} years of measurements.`,
+      example: 'Measure your height every year and almost every pair of years gives "+1": S is big and p is tiny. That is a clear change.',
       pairs: 'pairs compared',
-      up: 'went up',
-      down: 'went down',
-      tie: 'equal',
-      result: (v: string) => (v === 'significant' ? 'p is below 0.05: the trend is reliable.' : v === 'weak' ? 'p is not below 0.05: chance can still explain it.' : 'Too few years for a conclusion.'),
+      up: 'went up (+1)',
+      down: 'went down (−1)',
+      tie: 'equal (0)',
+      result: (v: string) => (v === 'significant' ? 'p is below 0.05: the change is reliable.' : v === 'weak' ? 'p is not below 0.05: it may still be random jumps.' : 'Too few years to tell.'),
     },
     seasonal: {
-      title: '3. The seasonal Mann-Kendall test (months and days)',
-      where: 'the "Months" and "Days" chart views',
-      idea: 'Monthly data have a seasonal cycle: July is always warmer than January. The ordinary test would take that for a "change", so the seasonal version (Hirsch, Slack and Smith 1982) compares each month only with the same month of other years: January with Januaries, July with Julys. S and Var(S) are sums over the 12 months. Daily data are first turned into monthly means: neighbouring days are too alike, and a test on raw days would claim false certainty.',
+      title: '3. Not mixing up the seasons with a change',
+      where: 'the "Months" and "Days" charts',
+      idea: 'Summer is always warmer than winter: that is the seasons, not climate change. So January is compared only with other Januaries, July only with Julys, for all 12 months, and the 12 results are added up. Days are first turned into monthly averages, because neighbouring days are too alike.',
+      example: 'Comparing July with January is like measuring your height in trainers and barefoot: there is a difference, but you did not grow.',
       active: 'In use now: the chart shows months or days.',
-      inactive: 'Not in use now: the chart shows years.',
+      inactive: 'Not needed now: the chart shows years.',
     },
     sen: {
-      title: '4. The Theil-Sen slope: how fast',
-      where: '"Rate of change", the dashed trend line, the "Change over the period" tile',
-      idea: 'For every pair of years take the slope: how much the value changed per year. The median of all these slopes is the trend rate. A single very hot or wet year hardly moves a median, so the estimate is robust. The 95% confidence interval comes from the same slopes (Gilbert 1987).',
-      slopes: 'slopes',
+      title: '4. How fast it changes',
+      where: '"Rate of change", the dashed line on the chart, the "Change over the period" tile',
+      idea: 'For every pair of years we work out how much the value changed per year. We line all those numbers up from smallest to biggest and take the one in the middle (the median). One very odd year, such as a record heatwave, hardly moves the middle.',
+      example: 'If you grew from 140 to 150 cm in 5 years, the rate is 2 cm a year, or 20 cm in 10 years.',
+      slopes: 'rates compared',
       perYear: 'per year',
-      ci: '95% confidence interval',
+      ci: 'most likely between',
       change: (a: number, b: number) => `change over ${a}-${b}`,
     },
     ols: {
-      title: '5. Linear regression and the t-test: a second opinion',
+      title: '5. A second check: a straight line',
       where: '"Details for those who know statistics"',
-      idea: 'The classic way: the straight line with the smallest sum of squared departures. The t-test checks whether its slope differs from zero. We show it next to Mann-Kendall: when both agree, the conclusion is firmer. R² is the share of the ups and downs the line explains.',
+      idea: 'Another way: draw the straight line that runs as close to all the points as possible and check whether it slopes. R² shows how much of the ups and downs the line explains (from 0 to 1). When both ways say the same thing, the conclusion is easier to trust.',
+      example: 'Like asking two teachers: if both give an A, you trust the mark more.',
       slope: 'slope',
     },
     years: {
-      title: '6. How many years a trend needs to be seen',
-      where: '"it will be certain in about N years" and "can be told apart with about N years"',
-      idea: 'The Weatherhead et al. (1998) formula: the weaker the trend ω and the stronger the noise σ (scatter around the line), the longer one must watch. φ is how alike neighbouring years are: when a warm summer tends to follow a warm one, there is less new information and more years are needed.',
-      sigma: 'noise σ (scatter around the line)',
-      phi: 'likeness of neighbours φ',
-      omega: 'trend ω per year',
+      title: '6. How many years you need to watch',
+      where: 'the phrase "it will be certain in about N years"',
+      idea: 'The weaker the change ω and the more the values jump from year to year (the "noise" σ), the longer you have to watch to see it. φ shows how alike neighbouring years are: then each new year brings less new information.',
+      example: 'Like hearing a quiet sound in a noisy classroom: the louder the room and the quieter the sound, the longer you have to listen.',
+      sigma: 'noise σ (how much it jumps)',
+      phi: 'likeness of neighbouring years φ',
+      omega: 'change ω per year',
       need: 'years needed',
-      have: 'years available',
+      have: 'years so far',
     },
     band: {
-      title: '7. The trend line carried on (the band on the right)',
-      where: 'the light band and dotted line right of the period on the "Years" chart',
-      idea: 'Not a weather forecast: only where the line leads if things go on the same way. The band is the 95% range for a single year; it widens with distance from the data because the slope uncertainty is multiplied by the distance.',
+      title: '7. What comes next if things go on the same way',
+      where: 'the light band on the right of the "Years" chart',
+      idea: 'This is not a weather forecast, just the line carried on. The band shows where a single year will most likely land. The further into the future, the wider it gets, because we are less sure.',
+      example: 'If you grow 2 cm every year, next year you will most likely be 1-3 cm taller, not 20.',
     },
     cycle: {
-      title: '8. The seasonal cycle and the normal',
-      where: 'the "Seasonal cycle" view, the "Latest year" tile',
-      idea: 'A month\'s normal is its mean over all years of the period. "Latest year" shows how far above or below the mean it was. The GISTEMP anomaly is measured against the 1951-1980 normal.',
+      title: '8. The "normal" and the seasonal cycle',
+      where: 'the "Seasonal cycle" chart, the "Latest year" tile',
+      idea: 'A month\'s normal is its usual value, the average over all years. The departure (anomaly) is how far this year is above or below the normal.',
+      example: 'If July is usually 21 °C and this year it was 23 °C, it was 2 °C warmer than normal.',
     },
     weather: {
-      title: '9. Probability of weather events (the Weather panel)',
+      title: '9. How often something happens (the Weather panel)',
       where: 'the "How often it happens here" table',
-      idea: 'The probability is the share of the days of a month with the event: k rainy days out of N November days over 20 years. 1981-2000 is compared with 2006-2025, and the trend of the yearly number of such days is checked with the same Mann-Kendall test.',
+      idea: 'The probability is the share of days with the event out of all days. We compare 1981-2000 with 2006-2025, and the Mann-Kendall test checks whether such days are really becoming more or less frequent.',
+      example: 'If 20 Novembers had 600 days and 180 of them were rainy, the chance of rain in November is 180 ÷ 600 = 30%.',
     },
   },
 };
@@ -218,6 +243,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-region"
         title={t.region.title}
         where={t.region.where}
+        example={t.region.example}
         idea={<p>{t.region.idea}</p>}
         formula={
           <>
@@ -237,6 +263,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-mk"
         title={t.mk.title}
         where={t.mk.where}
+        example={t.mk.example}
         idea={
           <>
             <p>{t.mk.idea}</p>
@@ -294,6 +321,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-seasonal"
         title={t.seasonal.title}
         where={t.seasonal.where}
+        example={t.seasonal.example}
         idea={
           <>
             <p>{t.seasonal.idea}</p>
@@ -316,6 +344,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-sen"
         title={t.sen.title}
         where={t.sen.where}
+        example={t.sen.example}
         idea={<p>{t.sen.idea}</p>}
         formula={
           <>
@@ -350,6 +379,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-ols"
         title={t.ols.title}
         where={t.ols.where}
+        example={t.ols.example}
         idea={<p>{t.ols.idea}</p>}
         formula={
           <>
@@ -383,6 +413,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-years"
         title={t.years.title}
         where={t.years.where}
+        example={t.years.example}
         idea={<p>{t.years.idea}</p>}
         formula={
           <span>
@@ -409,6 +440,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-band"
         title={t.band.title}
         where={t.band.where}
+        example={t.band.example}
         idea={<p>{t.band.idea}</p>}
         formula={
           <span>
@@ -421,6 +453,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-cycle"
         title={t.cycle.title}
         where={t.cycle.where}
+        example={t.cycle.example}
         idea={<p>{t.cycle.idea}</p>}
         formula={
           <>
@@ -438,6 +471,7 @@ export function Methods({ results, unit, perDecade, view }: Props) {
         id="m-weather"
         title={t.weather.title}
         where={t.weather.where}
+        example={t.weather.example}
         idea={<p>{t.weather.idea}</p>}
         formula={
           <span>

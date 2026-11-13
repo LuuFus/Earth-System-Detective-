@@ -46,6 +46,14 @@ with a Play button at the bottom, the analysis drawer on the right.
   temperature, humidity, precipitation and wind at that spot for the month and
   year on the timeline, over the ocean too. One request per 0.5° cell fetches
   every month since 1981, so moving the timeline afterwards needs no request.
+- **Leaving a layer**: while a layer is on, a "✕ Plain Earth" button sits at the
+  top.
+- **Coarse layers without squares**: MERRA-2 (temperature, precipitation, soil
+  moisture), AIRS and OMI have 0.25-1° cells. The globe loads the GIBS level
+  where a cell is about a pixel and stretches it smoothly; soil moisture is cut
+  along the coastline (a Natural Earth land mask). Daily OMI NO₂ and ozone have
+  no-data strips between satellite passes and under clouds: they are filled from
+  images up to 3 days before and after the date.
 - **Layers**: 12 NASA variables, each with a plain definition:
   - *with numbers*: temperature anomaly (GISTEMP, 1880-2025); air temperature,
     precipitation, soil moisture and humidity (NASA POWER, MERRA-2, 1981-2025);
@@ -60,12 +68,18 @@ with a Play button at the bottom, the analysis drawer on the right.
 - **War in Ukraine**: occupied, partly occupied and active-hostility hromadas from
   the official list of the Ministry for Development of Ukraine (Order No. 376).
 - **Analysis**: click a place on the globe (region A), optionally add region B.
-  A region can be **a whole country**: type its name under A or B, or switch
+  A region can be **a whole country**: type its name under A or B (everyday
+  names work too: "USA", "America", "UK", "UAE"...), or switch
   "A click on the globe picks: A country" and click it. The country is outlined
   on the globe in the region's colour, and the numbers come only from inside its
   borders: GISTEMP cells, the NASA POWER grid (up to 4 requests of 10°), or for
   large countries 16 points spread evenly over the territory. So you can compare,
-  say, Ukraine and Poland by temperature, rainfall or soil moisture.
+  say, Ukraine and Poland by temperature, rainfall or soil moisture. Under the
+  summary there is a plain comparison of the averages ("Average over
+  2001-2025: Canada …, the USA …"), and the chart has a colour legend. Land
+  surface temperature has MODIS numbers over Ukraine only; when a region lies
+  outside it, both regions are computed the same way from the MERRA-2 skin
+  temperature (NASA POWER), and the drawer says so.
   The drawer builds the time series and shows:
   - the Theil-Sen slope with its 95% confidence interval;
   - the Mann-Kendall test and the t-test;
@@ -99,7 +113,8 @@ with a Play button at the bottom, the analysis drawer on the right.
   the whole page (Esc closes it). Drag the analysis drawer's left edge to resize
   it.
 
-  The **"How it is computed"** tab: for each method (area mean, Mann-Kendall,
+  The **"How it is computed"** tab is written in plain words for school pupils,
+  with an everyday example next to each formula: for each method (area mean, Mann-Kendall,
   the seasonal test, Theil-Sen slope, regression and t-test, Weatherhead's
   estimate, the continued trend, the normal, event probability) where it shows
   on screen, plain words, the formula and the same arithmetic on your data (how
@@ -131,8 +146,10 @@ with a Play button at the bottom, the analysis drawer on the right.
 - **Before/after divider**: "Compare years" on the timeline splits the globe
   with a line; one year on the left, another on the right. Works for GISTEMP
   and every imagery layer; drag the line or move it with the arrow keys.
-- **Detective cases**: 8 ready-made investigations that fly to the place, turn
-  on the layer and compute the trends live:
+- **Detective cases**: 10 ready-made investigations, two of them comparisons:
+  "the USA and Canada" and "Kyiv and Odesa" (a city on the sea against an
+  inland one, as a seasonal cycle). Each flies to the place, turns on the layer
+  and computes the trends live:
   - the Arctic;
   - the warming hole off Greenland;
   - the Aral Sea (divider 2000 / 2025);

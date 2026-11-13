@@ -1809,6 +1809,30 @@ p {
   height: 2px;
 }
 
+.chart__legend--series {
+  color: var(--color-star);
+  font-size: 13px;
+}
+
+.chart__key {
+  flex: none;
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.chart__key--a {
+  background: var(--color-series-a);
+}
+
+.chart__key--b {
+  background: var(--color-series-b);
+}
+
+.chart__swatch--trend {
+  background: repeating-linear-gradient(90deg, var(--color-star-muted) 0 6px, transparent 6px 10px);
+}
+
 .chart__swatch--mean {
   background: repeating-linear-gradient(90deg, var(--color-haze) 0 5px, transparent 5px 8px);
 }
@@ -2317,6 +2341,57 @@ p {
   white-space: nowrap;
 }
 
+/* ---------- The active layer and the way back to the plain Earth ---------- */
+.layer-chip {
+  position: absolute;
+  top: var(--top-h);
+  left: 50%;
+  z-index: var(--z-content);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-control-line);
+  border-radius: var(--radius-chip);
+  background: var(--color-panel);
+  transform: translateX(-50%);
+}
+
+.layer-chip__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--color-star);
+  font: 500 13px / 1 var(--font-body);
+  white-space: nowrap;
+}
+
+.layer-chip__exit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 1px;
+  background: var(--color-star);
+  color: var(--color-navy);
+  font: 500 13px / 1 var(--font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-chip) var(--ease-chip);
+}
+
+.layer-chip__exit:hover {
+  background: var(--color-sunrise);
+}
+
+.layer-chip__exit:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 /* ---------- Layers: map labels ---------- */
 .sublayers {
   display: grid;
@@ -2542,6 +2617,15 @@ p {
   margin-top: var(--space-2);
   padding-left: 1.3em;
   font-size: 13px;
+}
+
+.method-card__example {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-chip);
+  background: color-mix(in oklab, var(--color-good) 10%, transparent);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .formula {
@@ -2922,6 +3006,16 @@ p {
   font-size: 11px;
 }
 
+.note--source {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-series-b);
+  background: color-mix(in oklab, var(--color-series-b) 8%, transparent);
+}
+
+.compare-note--levels {
+  margin-top: calc(-1 * var(--space-2));
+}
+
 .readout-chip__climate {
   color: var(--color-star-deep);
   font-size: 12px;
@@ -2974,6 +3068,10 @@ p {
 
   .readout-chip {
     bottom: calc(var(--gutter) + 72px + var(--timeline-h) + var(--space-2));
+  }
+
+  .layer-chip {
+    top: calc(var(--top-h) + 48px);
   }
 
   .drawer__resize {

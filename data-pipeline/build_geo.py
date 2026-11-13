@@ -231,6 +231,8 @@ def build_countries() -> list:
         code = p["ISO_A2"] if p["ISO_A2"] != "-99" else p["ISO_A2_EH"]
         if code == "-99":
             continue
+        # Natural Earth writes Taiwan as CN-TW; ISO 3166-1 (and every browser) knows it as TW.
+        code = code.split("-")[-1]
         polys = polygons(f["geometry"])
         if code == "RU":
             w, s, e, n = CRIMEA_BOX

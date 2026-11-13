@@ -3,6 +3,7 @@ import type { Region, Season } from '../../analysis/series';
 import { hasSeasons, regionBox, regionCentre, resolutionsFor } from '../../analysis/series';
 import { trendStats, verdict, yearsStillNeeded, type TrendStats } from '../../analysis/stats';
 import type { Case } from '../../data/cases';
+import { aliasOptions, countryIndex, findCountry } from '../../data/countryNames';
 import { countryAt, countryName, loadCountries, type GeoCountry } from '../../data/geo';
 import { variableById, variables, type VariableId } from '../../data/variables';
 import type { AnalysisState, RegionResult } from '../../hooks/useAnalysis';
@@ -80,10 +81,9 @@ export function AnalysisDrawer(p: Props) {
       .then((m) => setGeo([...m.values()]))
       .catch(() => setGeo([]));
   }, []);
-  const countryOptions = useMemo(
-    () => geo.map((c) => ({ c, label: countryName(c.code, lang, { uk: c.uk, en: c.en }) })).sort((x, y) => x.label.localeCompare(y.label, lang)),
-    [geo, lang],
-  );
+  // Countries by any name people type: "США", "Америка", "UK", the official name, the code.
+  const countryList = useMemo(() => countryIndex(geo, (c) => c.code, lang, (c) => [c.uk, c.en]), [geo, lang]);
+  const aliasList = useMemo(() => aliasOptions(countryList, lang), [countryList, lang]);
 
   const results = p.analysis.results;
   const first = results.find((r) => r.series);
@@ -243,16 +243,29 @@ export function AnalysisDrawer(p: Props) {
                   list={listId}
                   placeholder={a.countryPlaceholder}
                   autoComplete="off"
-                  key={region?.kind === 'country' ? region.code : 'none'}
+                  key={region?.kind === 'country' ? `${region.code}-${lang}` : 'none'}
                   defaultValue={region?.kind === 'country' ? countryName(region.code, lang, region.name) : ''}
                   onChange={(e) => {
-                    const hit = countryOptions.find((o) => o.label === e.target.value);
-                    if (hit) p.onCountry(slot, hit.c);
+                    // A whole name or an everyday one ("США") picks the country at once.
+                    const hit = findCountry(countryList, e.target.value, true);
+                    if (hit) p.onCountry(slot, hit.item);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    // Enter takes the best match for the start of a name ("Амер" finds the USA).
+                    const hit = findCountry(countryList, e.currentTarget.value);
+                    if (hit) {
+                      e.currentTarget.value = hit.label;
+                      p.onCountry(slot, hit.item);
+                    }
                   }}
                 />
                 <datalist id={listId}>
-                  {countryOptions.map((o) => (
-                    <option key={o.c.code} value={o.label} />
+                  {countryList.map((o) => (
+                    <option key={o.code} value={o.label} />
+                  ))}
+                  {aliasList.map((o) => (
+                    <option key={`${o.value}-${o.label}`} value={o.value} label={o.label} />
                   ))}
                 </datalist>
               </div>
@@ -315,7 +328,9 @@ export function AnalysisDrawer(p: Props) {
             )}
             {p.analysis.status === 'ready' && (
               <>
+                {p.analysis.fallback && <p className="note note--source">{p.analysis.fallback[lang]}</p>}
                 <Summary results={results} from={p.from} to={p.to} unit={unit} variable={p.chartVariable} />
+                <Levels results={results} from={p.from} to={p.to} unit={unit} />
                 <Tiles results={annual} from={p.from} to={p.to} unit={variable.unit[lang]} />
 
                 {views.length > 1 && (
@@ -375,6 +390,7 @@ export function AnalysisDrawer(p: Props) {
                         range: a.range,
                         onMap: a.onMap,
                         monthsShort: a.monthsShort,
+                        trend: a.trendLine,
                         ...a.chart,
                       }}
                     />
@@ -615,6 +631,27 @@ function Tiles({ results, from, to, unit }: { results: AnalysisState['results'];
         <p className="tile__note">{t.lastNote(rows[0].last.x)}</p>
       </section>
     </div>
+  );
+}
+
+/** How the two regions differ on average over the period, in one plain sentence. */
+function Levels({ results, from, to, unit }: { results: AnalysisState['results']; from: number; to: number; unit: string }) {
+  const { lang } = useI18n();
+  const a = useStudio().analysis;
+  const means = results.map((r) => {
+    const v = r.points.map((q) => q.y).filter(Number.isFinite);
+    return { r, mean: v.length ? v.reduce((x, y) => x + y, 0) / v.length : NaN };
+  });
+  if (means.length < 2 || means.some((m) => !Number.isFinite(m.mean))) return null;
+  const [ma, mb] = means;
+  const big = Math.max(Math.abs(ma.mean), Math.abs(mb.mean), Math.abs(ma.mean - mb.mean));
+  const f = numberFormat(lang, Math.min(2, digitsFor(big || 0.1)), false);
+  const [hi, lo] = ma.mean >= mb.mean ? [ma, mb] : [mb, ma];
+  return (
+    <p className="compare-note compare-note--levels">
+      {a.levels(from, to, regionName(ma.r.region, lang), `${f(ma.mean)} ${unit}`, regionName(mb.r.region, lang), `${f(mb.mean)} ${unit}`)}{' '}
+      {Math.abs(hi.mean - lo.mean) > 1e-9 && a.levelsDiff(regionName(hi.r.region, lang), `${f(hi.mean - lo.mean)} ${unit}`)}
+    </p>
   );
 }
 

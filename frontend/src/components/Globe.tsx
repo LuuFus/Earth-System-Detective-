@@ -6,7 +6,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { countries } from '../data/countries';
-import type { GeoBorders, GeoLabels } from '../data/geo';
+import { loadCountries, type GeoBorders, type GeoLabels } from '../data/geo';
 import { RAMP } from '../data/gistemp';
 import { useReducedMotion } from '../hooks/useMedia';
 import type { Lang } from '../i18n/strings';
@@ -47,7 +47,7 @@ const BASE = stackSource(
 /** Climate cells: R = value (0..1) times validity, G = validity, B = significance times validity. */
 export type GlobeData = { rgba: Uint8Array; width: number; height: number; key: string };
 /** `points`: a layer of point detections (fires), drawn in one colour above the vector layer. */
-export type GlobeImagery = { source: TileSource; opacity: number; points?: boolean };
+export type GlobeImagery = { source: TileSource; opacity: number; points?: boolean; landOnly?: boolean };
 export type GlobePoint = { lat: number; lon: number };
 export type GlobeMarker = { id: string; lat: number; lon: number; label: string };
 /** A hint about an anomaly, shown when zoomed in on its area. */
@@ -168,12 +168,17 @@ const clipGlsl = /* glsl */ `
 const overlayFragment = (prefix: string) => /* glsl */ `
   uniform float uOpacity;
   uniform vec4 uTint;
+  uniform sampler2D uLand;
+  uniform float uLandOnly;
   varying vec2 vUv;
   ${tiledGlsl(prefix)}
   ${clipGlsl}
   void main() {
     clipSide();
     vec4 c = ${prefix}Sample(vUv);
+    // Land-only data (soil moisture) stops at the coastline.
+    // The coverage is filtered and cut at one half: a crisp coast without the mask's pixel steps.
+    if (uLandOnly > 0.5) c.a *= smoothstep(0.38, 0.62, texture2D(uLand, vUv).r);
     if (c.a < 0.02) discard;
     // Point layers are recoloured so they stay visible over the red of the war layer.
     vec3 rgb = mix(c.rgb, uTint.rgb, uTint.a);
@@ -337,9 +342,59 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   const fireColor = readToken('--color-fire', '#ffd23f');
   const split = { value: 0 };
   let splitFraction = 0.5;
+  // Land mask for land-only layers: drawn once from the Natural Earth country outlines.
+  const land = { value: new THREE.Texture() };
+  let landState: 'none' | 'loading' | 'ready' = 'none';
+  const ensureLand = () => {
+    if (landState !== 'none') return;
+    landState = 'loading';
+    void loadCountries()
+      .then((all) => {
+        if (disposed) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = 4096;
+        canvas.height = 2048;
+        const ctx = canvas.getContext('2d')!;
+        // Black sea, white land: the red channel keeps the antialiased coverage of each pixel.
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        const kx = canvas.width / 360;
+        const ky = canvas.height / 180;
+        for (const c of all.values()) {
+          ctx.beginPath();
+          for (const ring of c.rings) {
+            for (let i = 0; i < ring.length; i += 2) {
+              const x = (ring[i] + 180) * kx;
+              const y = (90 - ring[i + 1]) * ky;
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+          }
+          ctx.fill('evenodd');
+        }
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.NoColorSpace;
+        tex.generateMipmaps = false;
+        tex.minFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.RepeatWrapping;
+        land.value.dispose();
+        land.value = tex;
+        landState = 'ready';
+        imageryUniforms.uLandOnly.value = landWanted.right ? 1 : 0;
+        imageryUniformsL.uLandOnly.value = landWanted.left ? 1 : 0;
+        requestRender();
+      })
+      .catch(() => (landState = 'none'));
+  };
+  const landWanted = { right: false, left: false };
+
   const imageryUniforms = {
     uOpacity: { value: 0.9 },
     uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uLand: land,
+    uLandOnly: { value: 0 },
     uSplit: split,
     uSide: { value: 0 },
     ...tiledUniforms('uImg', imagery),
@@ -364,6 +419,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   const imageryUniformsL = {
     uOpacity: { value: 0.9 },
     uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uLand: land,
+    uLandOnly: { value: 0 },
     uSplit: split,
     uSide: { value: -1 },
     ...tiledUniforms('uImg', imageryL),
@@ -862,6 +919,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
 
   function applyImagery(mesh: THREE.Mesh, uniforms: typeof imageryUniforms, layer: TiledLayer, next: GlobeImagery | null) {
     mesh.visible = !!next;
+    const landOnly = !!next?.landOnly;
+    landWanted[uniforms === imageryUniforms ? 'right' : 'left'] = landOnly;
+    if (landOnly) ensureLand();
+    uniforms.uLandOnly.value = landOnly && landState === 'ready' ? 1 : 0;
     layer.setSource(next?.source ?? null);
     if (next) uniforms.uOpacity.value = next.opacity;
     const tint = uniforms.uTint.value;
@@ -1122,6 +1183,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointerup', onUp);
       for (const m of lineMaterials) m.dispose();
+      land.value.dispose();
       base.dispose();
       imagery.dispose();
       imageryL.dispose();

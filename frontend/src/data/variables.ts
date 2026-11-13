@@ -25,18 +25,38 @@ export type Imagery = {
    * satellite's image of the same day, the first entry whose `first` date has been reached.
    */
   gapFill?: { layer: string; first: string; name: Text }[];
+  /**
+   * Coarse data (MERRA-2 0.5°, AIRS and OMI 1°): GIBS level with about one data cell a pixel. The
+   * globe stretches that level smoothly instead of drawing the cells as big squares up close.
+   */
+  native?: number;
+  /** Data only over land: the layer is cut along the coastline (Natural Earth). */
+  landOnly?: boolean;
+  /** Daily swaths with gaps between orbits and under clouds: filled from up to this many days before and after. */
+  fillDays?: number;
 };
 
 /** Where the numbers for the chart come from. */
 export type SeriesSource =
   | { kind: 'gistemp' }
-  | { kind: 'power'; parameter: 'T2M' | 'PRECTOTCORR' | 'GWETROOT' | 'RH2M'; aggregate: 'mean' | 'total' | 'percent' }
+  | { kind: 'power'; parameter: 'T2M' | 'PRECTOTCORR' | 'GWETROOT' | 'RH2M' | 'TS'; aggregate: 'mean' | 'total' | 'percent' }
   | { kind: 'ozonehole' }
   /**
    * A monthly grid built by data-pipeline (public/data/<file>.json + .bin), shown divided by `unit`.
    * `sum`: counts, added up over the cells and the months; `mean`: averaged over the area.
    */
-  | { kind: 'grid'; file: string; unit: number; combine: 'mean' | 'sum'; coverage: Text };
+  | {
+      kind: 'grid';
+      file: string;
+      unit: number;
+      combine: 'mean' | 'sum';
+      coverage: Text;
+      /**
+       * Numbers for anywhere else: when a region lies outside the grid, both regions use this
+       * NASA POWER parameter instead, so the comparison stays like for like.
+       */
+      fallback?: { source: { kind: 'power'; parameter: 'TS'; aggregate: 'mean' }; note: Text };
+    };
 
 export type Variable = {
   id: VariableId;
@@ -113,6 +133,7 @@ export const variables: Variable[] = [
       first: '1980-01-01',
       last: '2026-08-01',
       month: 7,
+      native: 0,
     },
     series: { kind: 'power', parameter: 'T2M', aggregate: 'mean' },
     years: POWER_YEARS,
@@ -138,6 +159,7 @@ export const variables: Variable[] = [
       first: '1980-01-01',
       last: '2026-08-01',
       month: 7,
+      native: 0,
     },
     series: { kind: 'power', parameter: 'PRECTOTCORR', aggregate: 'total' },
     years: POWER_YEARS,
@@ -163,6 +185,8 @@ export const variables: Variable[] = [
       first: '1980-01-01',
       last: '2026-08-01',
       month: 7,
+      native: 0,
+      landOnly: true,
     },
     series: { kind: 'power', parameter: 'GWETROOT', aggregate: 'percent' },
     years: POWER_YEARS,
@@ -188,6 +212,7 @@ export const variables: Variable[] = [
       first: '2002-09-01',
       last: '2026-09-01',
       month: 7,
+      native: 0,
     },
     series: { kind: 'power', parameter: 'RH2M', aggregate: 'mean' },
     years: POWER_YEARS,
@@ -214,7 +239,20 @@ export const variables: Variable[] = [
       last: '2026-10-01',
       month: 7,
     },
-    series: { kind: 'grid', file: 'lst/ukraine', unit: 1, combine: 'mean', coverage: { uk: 'Числа поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.).', en: 'Numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E).' } },
+    series: {
+      kind: 'grid',
+      file: 'lst/ukraine',
+      unit: 1,
+      combine: 'mean',
+      coverage: { uk: 'Числа поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.).', en: 'Numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E).' },
+      fallback: {
+        source: { kind: 'power', parameter: 'TS', aggregate: 'mean' },
+        note: {
+          uk: 'Точні числа MODIS у нас є лише над Україною, тому тут обидва регіони пораховано однаково за температурою поверхні Землі з моделі MERRA-2 (NASA POWER). Це середнє за добу (день і ніч разом), тож вона нижча за денну температуру MODIS на карті.',
+          en: 'We have exact MODIS numbers over Ukraine only, so here both regions are computed the same way from the Earth skin temperature of the MERRA-2 model (NASA POWER). It is a day-and-night mean, so it is lower than the daytime MODIS temperature on the map.',
+        },
+      },
+    },
     years: [2001, 2025],
   },
   {
@@ -272,6 +310,8 @@ export const variables: Variable[] = [
       last: '2026-11-05',
       month: 7,
       day: 15,
+      native: 1,
+      fillDays: 3,
     },
   },
   {
@@ -296,6 +336,8 @@ export const variables: Variable[] = [
       last: '2026-11-05',
       month: 10,
       day: 1,
+      native: 0,
+      fillDays: 3,
     },
     series: { kind: 'ozonehole' },
     years: [1979, 2025],
@@ -401,6 +443,19 @@ export function imageryDate(img: Imagery, year: number, month = img.month): stri
   if (date < img.first) return img.first;
   if (date > img.last) return img.last;
   return date;
+}
+
+/** The dates within `days` of `date` (nearest first, before then after), inside the layer's range. */
+export function nearbyDates(img: Imagery, date: string, days: number): string[] {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  const out: string[] = [];
+  for (let k = 1; k <= days; k++) {
+    for (const sign of [-1, 1]) {
+      const d = new Date(t + sign * k * 86_400_000).toISOString().slice(0, 10);
+      if (d >= img.first && d <= img.last) out.push(d);
+    }
+  }
+  return out;
 }
 
 export function imageryYears(img: Imagery): [number, number] {

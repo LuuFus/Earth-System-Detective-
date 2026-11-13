@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { countryRegion, regionBox, regionCentre, type Region } from '../analysis/series';
 import { CountrySearch } from '../components/CountrySearch';
 import { Globe, type GlobeApi, type GlobeCompare, type GlobeHint, type GlobeMarker, type GlobeOutline, type GlobePoint, type GlobeVector, type GlobeView } from '../components/Globe';
-import { gapFilledSource, wmsSource, wmtsSource } from '../components/globe/tiles';
+import { daysSource, gapFilledSource, nativeSource, wmsSource, wmtsSource } from '../components/globe/tiles';
 import { AnalysisDrawer } from '../components/studio/AnalysisDrawer';
 import { HintCard } from '../components/studio/HintCard';
+import { Icon } from '../components/studio/Icon';
 import { CasesPanel, Flyout, GlossaryPanel, LayersPanel, SharePanel } from '../components/studio/Panels';
 import { Rail } from '../components/studio/Rail';
 import { Timeline } from '../components/studio/Timeline';
@@ -16,7 +17,7 @@ import { eventsFor } from '../data/events';
 import { countryAt, countryName, loadBorders, loadCountries, loadLabels, type GeoBorders, type GeoCountry, type GeoLabels } from '../data/geo';
 import { hintById, hints } from '../data/hints';
 import { cellIndex } from '../data/gistemp';
-import { imageryDate, imageryYears, variableById } from '../data/variables';
+import { imageryDate, imageryYears, nearbyDates, variableById } from '../data/variables';
 import { drawWar, loadWar, WAR_BOX, type WarData } from '../data/war';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useClimateLayer } from '../hooks/useClimateLayer';
@@ -125,7 +126,11 @@ export default function Explore() {
         const fill = img.gapFill.find((f) => date >= f.first);
         source = gapFilledSource(source, fill ? wmtsSource(fill.layer, img.matrixSet, img.format, date) : null);
       }
-      return { source, opacity: img.points || variable!.id === 'truecolor' ? 1 : 0.85, points: img.points };
+      // Daily swaths: gaps between orbits and under clouds are filled from the nearest days.
+      if (img.fillDays) source = daysSource(source, nearbyDates(img, date, img.fillDays).map((d) => wmtsSource(img.layer, img.matrixSet, img.format, d)));
+      // Coarse grids: one level stretched smoothly; land-only data grown a little so the coast cut is clean.
+      if (img.native !== undefined) source = nativeSource(source, img.native, img.landOnly ? 3 : 0);
+      return { source, opacity: img.points || variable!.id === 'truecolor' ? 1 : 0.85, points: img.points, landOnly: img.landOnly };
     },
     [variable, state.month],
   );
@@ -464,6 +469,28 @@ export default function Explore() {
             if (c) openCase(c);
           }}
         />
+      )}
+
+      {variable && (
+        <div className="layer-chip" role="group" aria-label={s.activeLayer}>
+          <span className="layer-chip__name">
+            <Icon name="layers" size={16} />
+            {variable.name[lang]}
+          </span>
+          <button
+            type="button"
+            className="layer-chip__exit"
+            aria-label={s.exitLayerLabel(variable.name[lang])}
+            title={s.exitLayerLabel(variable.name[lang])}
+            onClick={() => {
+              dispatch({ type: 'variable', id: null });
+              dispatch({ type: 'compare', year: null });
+            }}
+          >
+            <Icon name="close" size={16} />
+            <span>{s.exitLayer}</span>
+          </button>
+        </div>
       )}
 
       {readout && (

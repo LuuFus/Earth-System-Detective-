@@ -225,6 +225,7 @@ export function Legend(p: Pick<LayersProps, 'variable' | 'mode' | 'year' | 'mont
         const fill = v.imagery.gapFill.find((f) => date >= f.first);
         return fill ? <p className="legend__src">{s.hints.gapFill(fill.name[lang])}</p> : null;
       })()}
+      {v.imagery.fillDays && <p className="legend__src">{s.layers.fillDays(v.imagery.fillDays)}</p>}
       {v.imagery.points ? (
         <p className="legend__points">
           <span className="legend__dot" aria-hidden="true" />

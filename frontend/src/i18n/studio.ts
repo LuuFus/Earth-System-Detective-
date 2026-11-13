@@ -34,6 +34,7 @@ const uk = {
     warError: 'Не вдалося завантажити шар.',
     pending: 'Числа для цієї змінної з’являться після підключення NASA Earthdata. Зараз на глобусі справжній знімок NASA.',
     imageryDate: 'Знімок за',
+    fillDays: (n: number) => `Пропуски між проходами супутника й під хмарами заповнено знімками до ${n} днів до й після цієї дати.`,
   },
   cases: {
     title: 'Справи детектива',
@@ -59,6 +60,9 @@ const uk = {
     pickModes: { point: 'Точку', country: 'Країну' },
     tabs: { result: 'Результат', methods: 'Як це рахується' },
     why: 'Як це пораховано?',
+    trendLine: 'лінія тренду (загальний напрямок)',
+    levels: (a: number, b: number, na: string, va: string, nb: string, vb: string) => `Середнє за ${a}-${b}: ${na} — ${va}, ${nb} — ${vb}.`,
+    levelsDiff: (n: string, d: string) => `Різниця — ${d} (вище: ${n}).`,
     resize: 'Змінити ширину панелі',
     dayLoading: 'Завантажую добові дані NASA POWER: це кілька секунд.',
     chart: {
@@ -179,6 +183,9 @@ const uk = {
     handle: 'Межа порівняння: тягніть або натискайте стрілки',
     months: ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'],
   },
+  exitLayer: 'Звичайна Земля',
+  exitLayerLabel: (name: string) => `Вимкнути шар «${name}» і повернутися до звичайної Землі`,
+  activeLayer: 'Шар',
   readout: {
     noData: 'немає даних',
     loading: 'завантажую NASA POWER…',
@@ -280,6 +287,7 @@ const en: Studio = {
     warError: 'Could not load the layer.',
     pending: 'Numbers for this variable arrive once NASA Earthdata is connected. The globe shows a real NASA image now.',
     imageryDate: 'Image for',
+    fillDays: (n: number) => `Gaps between satellite passes and under clouds are filled from images up to ${n} days before and after this date.`,
   },
   cases: {
     title: 'Detective cases',
@@ -305,6 +313,9 @@ const en: Studio = {
     pickModes: { point: 'A point', country: 'A country' },
     tabs: { result: 'Result', methods: 'How it is computed' },
     why: 'How is this computed?',
+    trendLine: 'trend line (the overall direction)',
+    levels: (a: number, b: number, na: string, va: string, nb: string, vb: string) => `Average over ${a}-${b}: ${na} ${va}, ${nb} ${vb}.`,
+    levelsDiff: (n: string, d: string) => `The difference is ${d} (higher: ${n}).`,
     resize: 'Resize the panel',
     dayLoading: 'Loading daily NASA POWER data: a few seconds.',
     chart: {
@@ -425,6 +436,9 @@ const en: Studio = {
     handle: 'Comparison divider: drag it or use the arrow keys',
     months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
   },
+  exitLayer: 'Plain Earth',
+  exitLayerLabel: (name: string) => `Turn off the "${name}" layer and go back to the plain Earth`,
+  activeLayer: 'Layer',
   readout: {
     noData: 'no data',
     loading: 'loading NASA POWER…',
