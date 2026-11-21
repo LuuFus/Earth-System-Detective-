@@ -10,7 +10,14 @@ import { loadCountries, type GeoBorders, type GeoLabels } from '../data/geo';
 import { RAMP } from '../data/gistemp';
 import { useReducedMotion } from '../hooks/useMedia';
 import type { Lang } from '../i18n/strings';
-import { stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmtsSource, type Box, type TileSource } from './globe/tiles';
+import { FlowLayer, type Projection, type WindSampler } from './globe/flow';
+import { PointsLayer, type GlobePoints } from './globe/points';
+import { StationLayer, type Stations } from './globe/stations';
+import { doseFromColor } from '../data/safecast';
+import { PATHS } from './studio/Icon';
+
+const iconPath = (name: string) => PATHS[name] ?? PATHS.info;
+import { mercatorSource, stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmtsSource, type Box, type TileSource } from './globe/tiles';
 
 /** Where the camera starts: over Ukraine, pulled back to show the whole disc. */
 const START = { lat: 42, lon: 28 };
@@ -38,11 +45,28 @@ const LINE_RADIUS = 1.0006;
  * Base map: NASA Blue Marble (500 m) down to its finest level, then the Landsat WELD global mosaic
  * (30 m, 1998-2000 composite) for close views. Blue Marble itself is a 2004 composite.
  */
-const BASE = stackSource(
-  'base',
-  wmtsSource('BlueMarble_NextGeneration', '500m', 'image/jpeg'),
-  wmtsSource('Landsat_WELD_CorrectedReflectance_TrueColor_Global_Annual', '31.25m', 'image/jpeg', '2000-12-01'),
-);
+const LANDSAT = wmtsSource('Landsat_WELD_CorrectedReflectance_TrueColor_Global_Annual', '31.25m', 'image/jpeg', '2000-12-01');
+const BASE = stackSource('base', wmtsSource('BlueMarble_NextGeneration', '500m', 'image/jpeg'), LANDSAT);
+/** Relief style: Blue Marble with shaded relief and sea-floor depths, as globe makers draw it. */
+const RELIEF_BASE = stackSource('relief-base', wmtsSource('BlueMarble_ShadedRelief_Bathymetry', '500m', 'image/jpeg'), LANDSAT);
+/** Hill shading from the ASTER elevation model (30 m), laid over the imagery up close. */
+const RELIEF_SHADE = wmtsSource('ASTER_GDEM_Greyscale_Shaded_Relief', '31.25m', 'image/jpeg');
+/** City lights for the night side: NASA Black Marble (VIIRS). */
+const NIGHT_LIGHTS = wmtsSource('VIIRS_Black_Marble', '500m', 'image/png');
+
+/** Where the Sun is overhead now: latitude and longitude of the subsolar point. */
+export function subsolar(date = new Date()): { lat: number; lon: number } {
+  const rad = Math.PI / 180;
+  const day = (date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 1)) / 86400000;
+  const g = (2 * Math.PI * (day - 1)) / 365;
+  // NOAA approximations: declination and the equation of time (minutes).
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const eot = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const minutes = date.getUTCHours() * 60 + date.getUTCMinutes() + date.getUTCSeconds() / 60;
+  let lon = -(minutes + eot - 720) / 4;
+  lon = ((lon + 540) % 360) - 180;
+  return { lat: decl / rad, lon };
+}
 
 /** Climate cells: R = value (0..1) times validity, G = validity, B = significance times validity. */
 export type GlobeData = { rgba: Uint8Array; width: number; height: number; key: string };
@@ -50,8 +74,8 @@ export type GlobeData = { rgba: Uint8Array; width: number; height: number; key: 
 export type GlobeImagery = { source: TileSource; opacity: number; points?: boolean; landOnly?: boolean };
 export type GlobePoint = { lat: number; lon: number };
 export type GlobeMarker = { id: string; lat: number; lon: number; label: string };
-/** A hint about an anomaly, shown when zoomed in on its area. */
-export type GlobeHint = { id: string; lat: number; lon: number; label: string };
+/** An event on the globe: a round badge with its kind's icon; `always` shows it at any zoom. */
+export type GlobeHint = { id: string; lat: number; lon: number; label: string; color: string; icon: string; always?: boolean };
 export type GlobeView = { lat: number; lon: number; distance: number };
 /** A region drawn as a coloured outline (a country picked as A or B). Rings: flat lon, lat pairs. */
 export type GlobeOutline = { id: string; rings: number[][] };
@@ -67,12 +91,29 @@ export type GlobeVector = {
 /** Before/after: the layers for the left of the shutter (the normal props draw the right). */
 export type GlobeCompare = { imagery: GlobeImagery | null; data: GlobeData | null; leftLabel: string; rightLabel: string; handleLabel: string };
 
+/** How the globe is lit: evenly, by the real Sun with a night side, or all night (city lights). */
+export type GlobeLight = 'flat' | 'sun' | 'night';
+/** A weather field painted on an equirectangular canvas (lon -180..180, lat 90..-90). */
+export type GlobeField = { canvas: HTMLCanvasElement; key: string; opacity: number };
+export type GlobeWind = { key: string; sample: WindSampler };
+export type { GlobePoints, Stations as GlobeStations };
+
 export type GlobeApi = {
   /** Loads a map layer for the current view without showing it (playback looks one step ahead). */
   preload: (source: TileSource) => Promise<void>;
   flyTo: (lat: number, lon: number, distance?: number) => void;
   jumpTo: (lat: number, lon: number, distance: number) => void;
   getView: () => GlobeView;
+  /** Closer (factor < 1) or farther (factor > 1), keeping the place in the middle. */
+  zoomBy: (factor: number) => void;
+  /** Back to the whole planet. */
+  home: () => void;
+  /** Fire story clock, hours since the story start (cheap: one uniform). */
+  setStoryTime: (hours: number) => void;
+  /** Dose rate on the radiation map at a place (µSv/h), when it is shown there. */
+  sampleRadiation: (lat: number, lon: number) => number | null;
+  /** The colour of the map layer at a place (RGBA), to read its value from the layer's colour map. */
+  sampleImagery: (lat: number, lon: number) => [number, number, number, number] | null;
 };
 
 type Props = {
@@ -92,7 +133,26 @@ type Props = {
   borderLines?: GeoBorders | null;
   labelLayers?: GlobeLabelLayers;
   outlines?: GlobeOutline[];
+  light?: GlobeLight;
+  relief?: boolean;
+  /** Fires: now (FIRMS, 48 h) or a story played day by day. */
+  fires?: GlobePoints | null;
+  /** Story clock, hours since the story start. */
+  storyTime?: number;
+  /** Measuring stations (air quality): bubbles with the value inside. */
+  stations?: Stations | null;
+  /** The station under the pointer (-1: none), with its screen position. */
+  onStationHover?: (index: number, x: number, y: number) => void;
+  onStationPick?: (index: number) => void;
+  /** Second vector layer: the front line (DeepState). */
+  front?: GlobeVector | null;
+  /** Radiation background: Safecast's measurement map. */
+  radiation?: boolean;
+  field?: GlobeField | null;
+  wind?: GlobeWind | null;
   onHint?: (id: string) => void;
+  /** The event badge under the pointer (null: none), with its screen position. */
+  onHintHover?: (id: string | null, x: number, y: number) => void;
   onHover?: (point: GlobePoint | null) => void;
   onPick?: (point: GlobePoint) => void;
   onView?: (view: GlobeView) => void;
@@ -129,26 +189,60 @@ const vertex = /* glsl */ `
   }
 `;
 
-// The light rides with the camera (up and to the left of the viewer), so the visible side is always lit.
+// Flat light rides with the camera (up and to the left of the viewer), so the visible side is
+// always lit. Sun light comes from the real subsolar point: the night side shows NASA Black
+// Marble city lights, with a warm twilight band along the terminator.
 const earthFragment = /* glsl */ `
   uniform float uReady;
   uniform float uGlint;
   uniform vec3 uAtmosphere;
+  uniform float uLight; // 0 flat, 1 sun, 2 night
+  uniform vec3 uSunView;
+  uniform float uRelief;
+  uniform float uLights;
+  uniform vec3 uLightTint;
+  uniform sampler2D uFallback;
+  uniform float uFallbackReady;
   varying vec2 vUv;
   varying vec3 vNormalV;
   ${tiledGlsl('uBase')}
+  ${tiledGlsl('uNight')}
+  ${tiledGlsl('uShade')}
   void main() {
     vec3 n = normalize(vNormalV);
-    vec3 light = normalize(vec3(-0.45, 0.55, 0.9));
-    float ndl = dot(n, light);
     vec4 map = uBaseSample(vUv);
-    vec3 base = mix(vec3(0.04, 0.07, 0.14), map.rgb, map.a * uReady);
-    vec3 col = base * (0.42 + 0.78 * max(ndl, 0.0));
+    // A small picture of the Earth shipped with the site shows at once; the tiles replace it.
+    vec3 under = mix(vec3(0.04, 0.07, 0.14), texture2D(uFallback, vUv).rgb, uFallbackReady);
+    vec3 base = mix(under, map.rgb, map.a * uReady);
     float ocean = smoothstep(0.015, 0.09, base.b - base.r) * map.a;
+    if (uRelief > 0.5) {
+      // ASTER hill shading: flat land is about 0.74 grey, the sea a darker flat grey (left alone).
+      vec4 sh = uShadeSample(vUv);
+      float land = smoothstep(0.42, 0.55, sh.r) * sh.a * (1.0 - ocean);
+      base *= mix(1.0, clamp(sh.r / 0.74, 0.5, 1.4), 0.85 * land);
+    }
+    vec3 light = uLight < 0.5 ? normalize(vec3(-0.45, 0.55, 0.9)) : uSunView;
+    float ndl = dot(n, light);
+    vec3 col;
+    if (uLight < 0.5) {
+      col = base * (0.42 + 0.78 * max(ndl, 0.0));
+    } else {
+      float day = uLight > 1.5 ? 0.0 : smoothstep(-0.06, 0.16, ndl);
+      vec3 lit = base * (0.06 + 1.12 * max(ndl, 0.0));
+      vec3 lights = uNightSample(vUv).rgb;
+      // Black Marble keeps the land faintly visible; the lights are lifted and warmed.
+      vec3 dark = base * 0.035 + pow(lights, vec3(1.35)) * uLightTint * uLights;
+      col = mix(dark, lit, day);
+      // A faint warm band along the terminator, only on the planet (not the limb haze).
+      float dusk = exp(-pow((ndl + 0.02) / 0.06, 2.0)) * (1.0 - step(1.5, uLight));
+      col += vec3(0.9, 0.45, 0.2) * dusk * 0.045 * base * 6.0;
+    }
     vec3 h = normalize(light + vec3(0.0, 0.0, 1.0));
-    col += vec3(0.85, 0.88, 0.95) * pow(max(dot(n, h), 0.0), 70.0) * 0.22 * ocean * uGlint;
+    float glint = uLight > 1.5 ? 0.0 : 1.0;
+    col += vec3(0.85, 0.88, 0.95) * pow(max(dot(n, h), 0.0), 70.0) * 0.22 * ocean * uGlint * glint;
     float rim = pow(1.0 - max(n.z, 0.0), 3.0);
-    col += uAtmosphere * rim * 0.6;
+    float rimLit = uLight < 0.5 ? 1.0 : uLight > 1.5 ? 0.12 : 0.15 + 0.85 * smoothstep(-0.25, 0.35, ndl);
+    col += uAtmosphere * rim * 0.6 * rimLit;
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -248,10 +342,29 @@ const atmosphereVertex = /* glsl */ `
 
 const atmosphereFragment = /* glsl */ `
   uniform vec3 uColor;
+  uniform float uLight;
+  uniform vec3 uSunView;
   varying vec3 vNormalV;
   void main() {
-    float facing = clamp(-normalize(vNormalV).z * 2.6, 0.0, 1.0);
-    gl_FragColor = vec4(uColor * pow(facing, 2.2) * 0.85, 1.0);
+    vec3 n = normalize(vNormalV);
+    float facing = clamp(-n.z * 2.6, 0.0, 1.0);
+    // The halo is the air over the limb: lit where the limb under it faces the Sun.
+    vec3 limb = normalize(vec3(n.xy, 0.0) + vec3(0.0, 0.0, 1e-4));
+    float lit = uLight < 0.5 ? 1.0 : uLight > 1.5 ? 0.15 : 0.12 + 0.88 * smoothstep(-0.45, 0.1, dot(limb, uSunView));
+    gl_FragColor = vec4(uColor * pow(facing, 2.2) * 0.85 * lit, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+// A weather field (GFS), painted on a canvas that covers the whole globe.
+const fieldFragment = /* glsl */ `
+  uniform sampler2D uField;
+  uniform float uOpacity;
+  varying vec2 vUv;
+  void main() {
+    vec4 c = texture2D(uField, vUv);
+    if (c.a < 0.02) discard;
+    gl_FragColor = vec4(c.rgb, c.a * uOpacity);
     #include <colorspace_fragment>
   }
 `;
@@ -270,10 +383,22 @@ type Api = GlobeApi & {
   setOutlines: (outlines: GlobeOutline[]) => void;
   setLang: (lang: Lang) => void;
   setReducedMotion: (on: boolean) => void;
+  setLight: (light: GlobeLight) => void;
+  setRelief: (on: boolean) => void;
+  setFires: (points: GlobePoints | null) => void;
+  setStoryTime: (hours: number) => void;
+  setStations: (stations: Stations | null) => void;
+  setFront: (vector: GlobeVector | null) => void;
+  setRadiation: (on: boolean) => void;
+  setField: (field: GlobeField | null) => void;
+  setWind: (wind: GlobeWind | null) => void;
   dispose: () => void;
 };
 
 type Callbacks = {
+  onHintHover: (id: string | null, x: number, y: number) => void;
+  onStationHover: (index: number, x: number, y: number) => void;
+  onStationPick: (index: number) => void;
   onHover: (point: GlobePoint | null) => void;
   onPick: (point: GlobePoint) => void;
   onView: (view: GlobeView) => void;
@@ -326,13 +451,45 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   base.noData.value = 0.0012; // 4/255 in sRGB: open sea in the Landsat mosaic is pure black, water is brighter
   const imagery = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
   base.setSource(BASE);
+  // City lights for the night side and hill shading for the relief style: loaded when used.
+  const night = new TiledLayer(2, anisotropy, requestRender, onLoading);
+  const shade = new TiledLayer(2, anisotropy, requestRender, onLoading);
+  let light: GlobeLight = 'flat';
+  let relief = false;
+  const sunWorld = new THREE.Vector3(1, 0, 0);
+  const sunView = new THREE.Vector3(0, 0, 1);
+  // When the Sun was last placed (rAF clock); -Infinity places it on the very first frame.
+  let sunAt = -Infinity;
 
   const atmosphereColor = readToken('--color-atmosphere', '#7fb0ff');
-  const earthUniforms = { uReady: { value: 1 }, uGlint: { value: 1 }, uAtmosphere: { value: atmosphereColor }, ...tiledUniforms('uBase', base) };
+  const earthUniforms = {
+    uReady: { value: 1 },
+    uGlint: { value: 1 },
+    uAtmosphere: { value: atmosphereColor },
+    uLight: { value: 0 },
+    uSunView: { value: sunView },
+    uRelief: { value: 0 },
+    uLights: { value: 1.55 },
+    uLightTint: { value: readToken('--color-night-lights', '#ffd9a8') },
+    uFallback: { value: new THREE.Texture() },
+    uFallbackReady: { value: 0 },
+    ...tiledUniforms('uBase', base),
+    ...tiledUniforms('uNight', night),
+    ...tiledUniforms('uShade', shade),
+  };
   // Every layer is drawn on the same sphere as the earth, without a depth test: lifted even a few
   // kilometres, a layer would slide against the map at close zoom. Back faces are culled, so the
   // far side of the globe never shows through.
   const sphere = new THREE.SphereGeometry(1, 160, 120);
+  new THREE.TextureLoader().load(`${import.meta.env.BASE_URL}img/earth-relief-2k.jpg`, (tex) => {
+    if (disposed) return tex.dispose();
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = anisotropy;
+    tex.wrapS = THREE.RepeatWrapping;
+    earthUniforms.uFallback.value = tex;
+    earthUniforms.uFallbackReady.value = 1;
+    requestRender();
+  });
   const earth = new THREE.Mesh(
     sphere,
     new THREE.ShaderMaterial({ uniforms: earthUniforms, vertexShader: vertex, fragmentShader: earthFragment }),
@@ -468,54 +625,127 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   /** Borders, coastlines and map labels are on together (the "Borders and names" switch). */
   let bordersOn = false;
 
-  const vectorUniforms = {
-    uVec: { value: new THREE.Texture() },
-    uVecBounds: { value: new THREE.Vector4() },
-    uVecPatch: { value: new THREE.Texture() },
-    uVecPatchBounds: { value: new THREE.Vector4() },
-  };
-  let vector: GlobeVector | null = null;
-  let vectorPatchKey = '';
   const uvBounds = (b: Box) => [(b.w + 180) / 360, (b.s + 90) / 180, (b.e + 180) / 360, (b.n + 90) / 180] as const;
-  const clearVectorPatch = () => {
-    vectorPatchKey = '';
-    vectorUniforms.uVecPatchBounds.value.set(0, 0, 0, 0);
+  /** A vector layer painted on a canvas over a box, repainted sharper for the view when zoomed in. */
+  const makeVectorLayer = (order: number) => {
+    const uniforms = {
+      uVec: { value: new THREE.Texture() },
+      uVecBounds: { value: new THREE.Vector4() },
+      uVecPatch: { value: new THREE.Texture() },
+      uVecPatchBounds: { value: new THREE.Vector4() },
+    };
+    let vector: GlobeVector | null = null;
+    let patchKey = '';
+    const mesh = new THREE.Mesh(
+      sphere,
+      new THREE.ShaderMaterial({ uniforms, vertexShader: vertex, fragmentShader: vectorFragment, transparent: true, depthTest: false, depthWrite: false }),
+    );
+    mesh.renderOrder = order;
+    mesh.visible = false;
+    scene.add(mesh);
+    const clearPatch = () => {
+      patchKey = '';
+      uniforms.uVecPatchBounds.value.set(0, 0, 0, 0);
+    };
+    return {
+      mesh,
+      /** Repaints the visible part at screen resolution once that beats the whole-layer canvas. */
+      updatePatch(box: Box | null, px: number) {
+        if (!vector?.draw || !box || !mesh.visible) return clearPatch();
+        const vb = vector.box;
+        const part = { w: Math.max(box.w, vb.w), s: Math.max(box.s, vb.s), e: Math.min(box.e, vb.e), n: Math.min(box.n, vb.n) };
+        const degPerPixel = (box.e - box.w) / px;
+        const wholePerPixel = (vb.e - vb.w) / vector.canvas.width;
+        if (part.e <= part.w || part.n <= part.s || degPerPixel > wholePerPixel * 0.7) return clearPatch();
+        const width = Math.min(4096, Math.ceil((part.e - part.w) / degPerPixel));
+        const key = `${vector.key}|${part.w.toFixed(3)},${part.s.toFixed(3)},${part.e.toFixed(3)},${part.n.toFixed(3)}|${width}`;
+        if (key === patchKey) return;
+        patchKey = key;
+        const tex = new THREE.CanvasTexture(vector.draw(part, width));
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = anisotropy;
+        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+        const previous = uniforms.uVecPatch.value;
+        uniforms.uVecPatch.value = tex;
+        previous.dispose();
+        uniforms.uVecPatchBounds.value.set(...uvBounds(part));
+        requestRender();
+      },
+      set(next: GlobeVector | null) {
+        const sameCanvas = vector?.canvas === next?.canvas;
+        vector = next;
+        if (!sameCanvas) clearPatch();
+        if (!next) {
+          mesh.visible = false;
+          requestRender();
+          return;
+        }
+        if (!sameCanvas) {
+          const tex = new THREE.CanvasTexture(next.canvas);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = anisotropy;
+          const previous = uniforms.uVec.value;
+          uniforms.uVec.value = tex;
+          previous.dispose();
+          uniforms.uVecBounds.value.set(...uvBounds(next.box));
+        }
+        mesh.visible = true;
+        requestRender();
+        scheduleView();
+      },
+      dispose() {
+        uniforms.uVec.value.dispose();
+        uniforms.uVecPatch.value.dispose();
+      },
+    };
   };
-  /** Repaints the visible part of the vector layer at screen resolution once that beats the whole-layer canvas. */
-  const updateVectorPatch = (box: Box | null, px: number) => {
-    if (!vector?.draw || !box || !vectorMesh.visible) return clearVectorPatch();
-    const vb = vector.box;
-    const part = { w: Math.max(box.w, vb.w), s: Math.max(box.s, vb.s), e: Math.min(box.e, vb.e), n: Math.min(box.n, vb.n) };
-    const degPerPixel = (box.e - box.w) / px;
-    const wholePerPixel = (vb.e - vb.w) / vector.canvas.width;
-    if (part.e <= part.w || part.n <= part.s || degPerPixel > wholePerPixel * 0.7) return clearVectorPatch();
-    const width = Math.min(4096, Math.ceil((part.e - part.w) / degPerPixel));
-    const key = `${vector.key}|${part.w.toFixed(3)},${part.s.toFixed(3)},${part.e.toFixed(3)},${part.n.toFixed(3)}|${width}`;
-    if (key === vectorPatchKey) return;
-    vectorPatchKey = key;
-    const tex = new THREE.CanvasTexture(vector.draw(part, width));
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = anisotropy;
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    const previous = vectorUniforms.uVecPatch.value;
-    vectorUniforms.uVecPatch.value = tex;
-    previous.dispose();
-    vectorUniforms.uVecPatchBounds.value.set(...uvBounds(part));
-    requestRender();
-  };
-  const vectorMesh = new THREE.Mesh(
-    sphere,
-    new THREE.ShaderMaterial({ uniforms: vectorUniforms, vertexShader: vertex, fragmentShader: vectorFragment, transparent: true, depthTest: false, depthWrite: false }),
-  );
-  vectorMesh.renderOrder = 2.5;
-  vectorMesh.visible = false;
-  scene.add(vectorMesh);
+  const warLayer = makeVectorLayer(2.5);
+  const frontLayer = makeVectorLayer(2.55);
 
+  // Weather field (GFS) under the wind lines.
+  const fieldUniforms = { uField: { value: new THREE.Texture() }, uOpacity: { value: 0.8 } };
+  const fieldMesh = new THREE.Mesh(
+    sphere,
+    new THREE.ShaderMaterial({ uniforms: fieldUniforms, vertexShader: vertex, fragmentShader: fieldFragment, transparent: true, depthTest: false, depthWrite: false }),
+  );
+  fieldMesh.renderOrder = 1.6;
+  fieldMesh.visible = false;
+  scene.add(fieldMesh);
+  let fieldKey = '';
+
+  // Radiation background: Safecast's measurement map, reprojected from Web Mercator tiles.
+  const rad = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
+  const radUniforms = {
+    uOpacity: { value: 0.9 },
+    uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uLand: land,
+    uLandOnly: { value: 0 },
+    uSplit: split,
+    uSide: { value: 0 },
+    ...tiledUniforms('uRad', rad),
+  };
+  const radMesh = new THREE.Mesh(
+    sphere,
+    new THREE.ShaderMaterial({ uniforms: radUniforms, vertexShader: vertex, fragmentShader: overlayFragment('uRad'), transparent: true, depthTest: false, depthWrite: false }),
+  );
+  radMesh.renderOrder = 2.2;
+  radMesh.visible = false;
+  scene.add(radMesh);
+  const RADIATION = mercatorSource('safecast', 'https://s3.amazonaws.com/te512.safecast.org/{z}/{x}/{y}.png', 15, 512);
+  /** Safecast's far-out tiles merge whole regions into big squares: the layer shows from here in. */
+  const RADIATION_FROM = 1.9;
+  let radOn = false;
+
+  // Fires (now or a story) and measuring stations.
+  const firePoints = new PointsLayer(2.8);
+  scene.add(firePoints.object);
+
+  const atmosphereUniforms = { uColor: { value: atmosphereColor }, uLight: { value: 0 }, uSunView: { value: sunView } };
   scene.add(
     new THREE.Mesh(
       new THREE.SphereGeometry(1.07, 96, 72),
       new THREE.ShaderMaterial({
-        uniforms: { uColor: { value: atmosphereColor } },
+        uniforms: atmosphereUniforms,
         vertexShader: atmosphereVertex,
         fragmentShader: atmosphereFragment,
         side: THREE.BackSide,
@@ -628,7 +858,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
 
   // Region markers
   let markerObjects: { obj: CSS2DObject; normal: THREE.Vector3 }[] = [];
-  let hintObjects: { obj: CSS2DObject; normal: THREE.Vector3 }[] = [];
+  let hintObjects: { obj: CSS2DObject; normal: THREE.Vector3; always: boolean }[] = [];
 
   // Controls
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -694,7 +924,11 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     base.updateView(box, px);
     if (imageryMesh.visible) imagery.updateView(box, px);
     if (imageryMeshL.visible) imageryL.updateView(box, px);
-    updateVectorPatch(box, px);
+    warLayer.updatePatch(box, px);
+    frontLayer.updatePatch(box, px);
+    if (light !== 'flat') night.updateView(box, px);
+    if (relief) shade.updateView(box, px);
+    if (radMesh.visible) rad.updateView(box, px);
     const p = toLatLon(camera.position);
     cb.onView({ lat: p.lat, lon: p.lon, distance });
   };
@@ -724,21 +958,47 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     raycaster.setFromCamera(pointer, camera);
     return raycaster.ray.intersectSphere(UNIT_SPHERE, hit) ? toLatLon(hit) : null;
   };
+  const stationAt = (e: PointerEvent) => {
+    if (!stationLayer.active) return -1;
+    const rect = canvas.getBoundingClientRect();
+    return stationLayer.hit(e.clientX - rect.left, e.clientY - rect.top);
+  };
   const onMove = (e: PointerEvent) => {
     if (e.pointerType !== 'mouse' || e.buttons) return;
     toNdc(e);
     pointerInside = true;
     pointerDirty = true;
+    const i = stationAt(e);
+    if (i !== stationLayer.hovered) {
+      stationLayer.hovered = i;
+      stationsDirty = true;
+      canvas.style.cursor = i >= 0 ? 'pointer' : '';
+    }
+    if (i >= 0) {
+      const rect = canvas.getBoundingClientRect();
+      cb.onStationHover(i, e.clientX - rect.left, e.clientY - rect.top);
+    } else cb.onStationHover(-1, 0, 0);
   };
   const onLeave = () => {
     pointerInside = false;
     cb.onHover(null);
+    if (stationLayer.hovered >= 0) {
+      stationLayer.hovered = -1;
+      stationsDirty = true;
+      cb.onStationHover(-1, 0, 0);
+    }
   };
   const onDown = (e: PointerEvent) => {
     downAt = { x: e.clientX, y: e.clientY };
   };
   const onUp = (e: PointerEvent) => {
     if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6) {
+      const station = stationAt(e);
+      if (station >= 0) {
+        downAt = null;
+        cb.onStationPick(station);
+        return;
+      }
       toNdc(e);
       const p = pointAt();
       if (p) {
@@ -784,10 +1044,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       }
     }
     for (const hint of hintObjects) {
-      hint.obj.visible = distance <= HINTS_FROM && hint.normal.dot(camDir) > horizon + 0.05;
+      hint.obj.visible = (hint.always || distance <= HINTS_FROM) && hint.normal.dot(camDir) > horizon + 0.05;
       if (hint.obj.visible) {
         const [x, y] = screen(hint.normal);
-        taken.push([x - 2, y - 30, x + 24, y + 2]);
+        taken.push([x - 16, y - 34, x + 16, y + 2]);
       }
     }
     const shown = bordersOn;
@@ -849,12 +1109,72 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     }
   };
 
+  // Wind lines: a 2D canvas between the globe and the labels.
+  const flow = new FlowLayer('globe__flow');
+  flow.canvas.hidden = true;
+  host.insertBefore(flow.canvas, labelRenderer.domElement);
+  const flowDir = new THREE.Vector3();
+  const flowP = new THREE.Vector3();
+  const flowHit = new THREE.Vector3();
+  const flowNdc = new THREE.Vector2();
+  let flowPpd = 1;
+  const flowView: Projection = {
+    project(lat, lon) {
+      const p = fromLatLon(lat, lon, 1);
+      if (p.dot(flowDir) < 1 / camera.position.length() + 0.015) return null;
+      flowP.copy(p).project(camera);
+      return [((flowP.x + 1) / 2) * host.clientWidth, ((1 - flowP.y) / 2) * host.clientHeight];
+    },
+    randomPlace() {
+      for (let k = 0; k < 10; k++) {
+        flowNdc.set(Math.random() * 2 - 1, Math.random() * 2 - 1);
+        raycaster.setFromCamera(flowNdc, camera);
+        if (raycaster.ray.intersectSphere(UNIT_SPHERE, flowHit)) {
+          const p = toLatLon(flowHit);
+          return [p.lat, p.lon];
+        }
+      }
+      return null;
+    },
+    pixelsPerDegree: () => flowPpd,
+  };
+  // Air-quality bubbles: a canvas above the wind lines.
+  const stationLayer = new StationLayer('globe__stations');
+  stationLayer.canvas.hidden = true;
+  host.insertBefore(stationLayer.canvas, labelRenderer.domElement);
+  let stationsDirty = false;
+
+  const lastCamera = new THREE.Matrix4();
+  /** True once per frame in which the camera moved. */
+  const cameraMoved = () => {
+    camera.updateMatrixWorld();
+    if (lastCamera.equals(camera.matrixWorld)) return false;
+    lastCamera.copy(camera.matrixWorld);
+    return true;
+  };
+  const flowFrame = () => {
+    flowDir.copy(camera.position).normalize();
+    // Pixels per degree at the middle of the view.
+    const centre = toLatLon(camera.position);
+    const a = flowView.project(centre.lat, centre.lon);
+    const b = flowView.project(Math.min(89, centre.lat + 0.5), centre.lon);
+    flowPpd = a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) * 2 : 1;
+    const d = camera.position.length();
+    const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
+    const discPx = (Math.tan(Math.asin(1 / d)) / Math.tan(vHalf)) * (host.clientHeight / 2);
+    const coverage = Math.min(1, (Math.PI * discPx * discPx) / (host.clientWidth * host.clientHeight));
+    flow.frame(flowView, coverage);
+  };
+
   // Resize
   const resize = () => {
     const w = Math.max(1, host.clientWidth);
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
     labelRenderer.setSize(w, h);
+    flow.resize(w, h, renderer.getPixelRatio());
+    stationLayer.resize(w, h, renderer.getPixelRatio());
+    stationsDirty = true;
     for (const m of lineMaterials) m.resolution.set(w, h);
     split.value = splitFraction * renderer.domElement.width;
     camera.aspect = w / h;
@@ -881,10 +1201,37 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       if (controls.update()) needsRender = true;
     }
     hover(now);
+    if (light !== 'flat' && now - sunAt > 30000) {
+      // The Sun moves a quarter of a degree a minute: place it again every 30 s.
+      sunAt = now;
+      const sp = subsolar();
+      sunWorld.copy(fromLatLon(sp.lat, sp.lon, 1));
+      needsRender = true;
+    }
+    const moved = cameraMoved();
+    if (radOn) {
+      const show = camera.position.length() < RADIATION_FROM;
+      if (show !== radMesh.visible) {
+        radMesh.visible = show;
+        needsRender = true;
+        if (show) scheduleView();
+      }
+    }
+    if (moved) flow.clear();
+    if (flow.active) flowFrame();
+    if (stationLayer.active && (moved || stationsDirty)) {
+      stationsDirty = false;
+      flowDir.copy(camera.position).normalize();
+      stationLayer.draw(flowView);
+    }
     if (!needsRender) return;
     needsRender = false;
     // The sun glint on the ocean only reads well from far away; close up it would be a bright smear.
     earthUniforms.uGlint.value = THREE.MathUtils.smoothstep(camera.position.length(), 1.6, 2.6);
+    camera.updateMatrixWorld();
+    sunView.copy(sunWorld).transformDirection(camera.matrixWorldInverse);
+    const distance = camera.position.length();
+    firePoints.update(distance, renderer.getPixelRatio());
     updateLabels();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
@@ -934,7 +1281,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     scheduleView();
   }
 
-  return {
+  const api: Api = {
     preload(source) {
       return imagery.preload(source);
     },
@@ -988,23 +1335,94 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       scheduleView();
     },
     setVector(next) {
-      vector = next;
-      clearVectorPatch();
-      if (!next) {
-        vectorMesh.visible = false;
+      warLayer.set(next);
+    },
+    setFront(next) {
+      frontLayer.set(next);
+    },
+    setLight(next) {
+      light = next;
+      earthUniforms.uLight.value = next === 'flat' ? 0 : next === 'sun' ? 1 : 2;
+      atmosphereUniforms.uLight.value = earthUniforms.uLight.value;
+      night.setSource(next === 'flat' ? null : NIGHT_LIGHTS);
+      sunAt = -Infinity;
+      requestRender();
+      scheduleView();
+    },
+    setRelief(on) {
+      relief = on;
+      earthUniforms.uRelief.value = on ? 1 : 0;
+      base.setSource(on ? RELIEF_BASE : BASE);
+      shade.setSource(on ? RELIEF_SHADE : null);
+      requestRender();
+      scheduleView();
+    },
+    setFires(points) {
+      firePoints.set(points);
+      if (points?.mode === 'live') firePoints.uniforms.uNow.value = 0;
+      requestRender();
+    },
+    setStoryTime(hours) {
+      firePoints.uniforms.uNow.value = hours;
+      requestRender();
+    },
+    setStations(next) {
+      stationLayer.set(next);
+      stationLayer.canvas.hidden = !next;
+      stationsDirty = true;
+    },
+    setRadiation(on) {
+      radOn = on;
+      radMesh.visible = on && camera.position.length() < RADIATION_FROM;
+      rad.setSource(on ? RADIATION : null);
+      requestRender();
+      scheduleView();
+    },
+    setField(field) {
+      if (!field) {
+        fieldMesh.visible = false;
+        fieldKey = '';
         requestRender();
         return;
       }
-      const tex = new THREE.CanvasTexture(next.canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = anisotropy;
-      const previous = vectorUniforms.uVec.value;
-      vectorUniforms.uVec.value = tex;
-      previous.dispose();
-      vectorUniforms.uVecBounds.value.set(...uvBounds(next.box));
-      vectorMesh.visible = true;
+      fieldUniforms.uOpacity.value = field.opacity;
+      if (field.key !== fieldKey) {
+        fieldKey = field.key;
+        const tex = new THREE.CanvasTexture(field.canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = anisotropy;
+        tex.wrapS = THREE.RepeatWrapping;
+        const previous = fieldUniforms.uField.value;
+        fieldUniforms.uField.value = tex;
+        previous.dispose();
+      }
+      fieldMesh.visible = true;
       requestRender();
-      scheduleView();
+    },
+    setWind(wind) {
+      flow.setWind(wind?.sample ?? null);
+      flow.canvas.hidden = !wind;
+    },
+    sampleImagery(lat, lon) {
+      if (!imageryMesh.visible) return null;
+      return imagery.sample((lon + 180) / 360, (lat + 90) / 180);
+    },
+    sampleRadiation(lat, lon) {
+      if (!radMesh.visible) return null;
+      const c = rad.sample((lon + 180) / 360, (lat + 90) / 180);
+      if (!c || c[3] < 200) return null;
+      return doseFromColor(c[0], c[1], c[2]);
+    },
+    zoomBy(factor) {
+      const p = toLatLon(camera.position);
+      const d = camera.position.length();
+      api.flyTo(p.lat, p.lon, 1 + (d - 1) * factor);
+    },
+    home() {
+      const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
+      const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect);
+      const d = THREE.MathUtils.clamp(1.12 / Math.sin(Math.min(vHalf, hHalf)), 2.6, MAX_DISTANCE);
+      api.flyTo(START.lat, START.lon, d);
     },
     setMarkers(markers) {
       for (const m of markerObjects) scene.remove(m.obj);
@@ -1030,28 +1448,30 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       hintObjects = hints.map((h) => {
         const el = document.createElement('button');
         el.type = 'button';
-        el.className = 'globe__hint';
+        el.className = `globe__hint${h.always ? ' globe__hint--layer' : ''}`;
         el.setAttribute('aria-label', h.label);
-        // A map pin whose tip marks the place.
-        const icon = document.createElement('span');
-        icon.className = 'globe__hint-icon';
-        icon.setAttribute('aria-hidden', 'true');
-        icon.innerHTML =
-          '<svg viewBox="0 0 24 32" width="22" height="29" focusable="false"><ellipse cx="12" cy="29.6" rx="5.5" ry="1.9" class="globe__pin-shadow"/><path class="globe__pin-body" d="M12 1.5C6.2 1.5 1.6 6.1 1.6 11.8c0 7.3 8.5 15.2 9.5 16.1a1.3 1.3 0 0 0 1.8 0c1-.9 9.5-8.8 9.5-16.1C22.4 6.1 17.8 1.5 12 1.5Z"/><circle class="globe__pin-eye" cx="12" cy="11.6" r="4.6"/></svg>';
-        const text = document.createElement('span');
-        text.className = 'globe__hint-text';
-        text.textContent = h.label;
-        el.append(icon, text);
+        el.style.setProperty('--hint', h.color);
+        // A round badge with the event's icon on a short stem; the stem's foot marks the place.
+        const badge = document.createElement('span');
+        badge.className = 'globe__hint-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        badge.innerHTML = `<svg viewBox="0 0 20 20" width="16" height="16" focusable="false"><path d="${iconPath(h.icon)}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        el.append(badge);
         el.addEventListener('click', (e) => {
           e.stopPropagation();
           cb.onHint(h.id);
         });
+        el.addEventListener('pointerenter', (e) => {
+          if (e.pointerType !== 'mouse') return;
+          const r = el.getBoundingClientRect();
+          cb.onHintHover(h.id, r.left + r.width / 2, r.top);
+        });
+        el.addEventListener('pointerleave', () => cb.onHintHover(null, 0, 0));
         const obj = new CSS2DObject(el);
-        // The pin's tip (bottom middle of the icon) sits on the place.
-        obj.center.set(0, 1);
+        obj.center.set(0.5, 1);
         obj.position.copy(fromLatLon(h.lat, h.lon, 1.004));
         scene.add(obj);
-        return { obj, normal: fromLatLon(h.lat, h.lon, 1) };
+        return { obj, normal: fromLatLon(h.lat, h.lon, 1), always: !!h.always };
       });
       requestRender();
     },
@@ -1143,10 +1563,11 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
           scene.add(line);
           borderObjects.push({ line, coast });
         };
+        // A wide dark halo under a bright line: borders stay readable over clouds, snow and data layers.
         add(lines.coast, star, 0.9, 0.45, 3.5, true, LINE_RADIUS);
-        add(lines.land, halo, 4, 0.55, 4.05, false, LINE_RADIUS + 0.0001);
-        add(lines.disputed, star, 1.2, 0.55, 4.1, false, LINE_RADIUS + 0.0002);
-        add(lines.land, star, 1.6, 0.95, 4.15, false, LINE_RADIUS + 0.0002);
+        add(lines.land, halo, 6, 0.72, 4.05, false, LINE_RADIUS + 0.0001);
+        add(lines.disputed, star, 1.3, 0.6, 4.1, false, LINE_RADIUS + 0.0002);
+        add(lines.land, star, 1.9, 1, 4.15, false, LINE_RADIUS + 0.0002);
         resize();
       }
       requestRender();
@@ -1159,15 +1580,28 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         m.dispose();
         lineMaterials.splice(lineMaterials.indexOf(m), 1);
       }
-      outlineObjects = outlines.map((o) => {
+      outlineObjects = outlines.flatMap((o) => {
+        const positions = segmentsFrom(o.rings, true, LINE_RADIUS + 0.0002);
+        const ukraine = o.id === 'UA';
+        const color = ukraine ? readToken('--color-ukraine', '#ffd23f') : readToken(`--color-series-${o.id.toLowerCase()}`, '#f3bd6e');
+        const out: LineSegments2[] = [];
+        if (ukraine) {
+          const haloGeometry = new LineSegmentsGeometry();
+          haloGeometry.setPositions(positions);
+          const halo = new LineSegments2(haloGeometry, makeLineMaterial(readToken('--color-void', '#03060f'), 6, 0.7));
+          halo.renderOrder = 4.9;
+          halo.frustumCulled = false;
+          scene.add(halo);
+          out.push(halo);
+        }
         const geometry = new LineSegmentsGeometry();
-        geometry.setPositions(segmentsFrom(o.rings, true, LINE_RADIUS + 0.0002));
-        const color = readToken(`--color-series-${o.id.toLowerCase()}`, '#f3bd6e');
-        const line = new LineSegments2(geometry, makeLineMaterial(color, 2.4, 0.95));
+        geometry.setPositions(positions);
+        const line = new LineSegments2(geometry, makeLineMaterial(color, ukraine ? 2.6 : 2.4, 0.95));
         line.renderOrder = 5;
         line.frustumCulled = false;
         scene.add(line);
-        return line;
+        out.push(line);
+        return out;
       });
       resize();
       requestRender();
@@ -1189,8 +1623,16 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       imageryL.dispose();
       dataUniforms.uData.value.dispose();
       dataUniformsL.uData.value.dispose();
-      vectorUniforms.uVec.value.dispose();
-      vectorUniforms.uVecPatch.value.dispose();
+      warLayer.dispose();
+      frontLayer.dispose();
+      night.dispose();
+      shade.dispose();
+      rad.dispose();
+      firePoints.dispose();
+      stationLayer.canvas.remove();
+      fieldUniforms.uField.value.dispose();
+      earthUniforms.uFallback.value.dispose();
+      flow.canvas.remove();
       scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         mesh.geometry?.dispose();
@@ -1203,6 +1645,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       labelRenderer.domElement.remove();
     },
   };
+  return api;
 }
 
 /** Full-screen interactive Earth: drag to rotate, wheel or pinch to zoom, click to pick a place. */
@@ -1229,6 +1672,9 @@ export function Globe(props: Props) {
         onView: (v) => latest.current.onView?.(v),
         onLoading: (l) => latest.current.onLoadingChange?.(l),
         onHint: (id) => latest.current.onHint?.(id),
+        onStationHover: (i, x, y) => latest.current.onStationHover?.(i, x, y),
+        onHintHover: (id, x, y) => latest.current.onHintHover?.(id, x, y),
+        onStationPick: (i) => latest.current.onStationPick?.(i),
       },
     );
     if (!created) setFailed(true);
@@ -1255,6 +1701,26 @@ export function Globe(props: Props) {
   const borderLines = props.borderLines ?? null;
   useEffect(() => api.current?.setBorderLines(borderLines), [borderLines]);
   useEffect(() => api.current?.setVector(vector), [vector]);
+  const front = props.front ?? null;
+  useEffect(() => api.current?.setFront(front), [front]);
+  const light = props.light ?? 'flat';
+  useEffect(() => api.current?.setLight(light), [light]);
+  const relief = props.relief ?? false;
+  useEffect(() => api.current?.setRelief(relief), [relief]);
+  const fires = props.fires ?? null;
+  useEffect(() => api.current?.setFires(fires), [fires]);
+  const storyTime = props.storyTime ?? 0;
+  useEffect(() => {
+    if (fires?.mode === 'story') api.current?.setStoryTime(storyTime);
+  }, [storyTime, fires]);
+  const stations = props.stations ?? null;
+  useEffect(() => api.current?.setStations(stations), [stations]);
+  const radiation = props.radiation ?? false;
+  useEffect(() => api.current?.setRadiation(radiation), [radiation]);
+  const field = props.field ?? null;
+  useEffect(() => api.current?.setField(field), [field]);
+  const wind = props.wind ?? null;
+  useEffect(() => api.current?.setWind(wind), [wind]);
   const compareImagery = compare?.imagery ?? null;
   const compareData = compare?.data ?? null;
   const comparing = !!compare;

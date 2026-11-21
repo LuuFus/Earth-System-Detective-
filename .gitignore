@@ -12,3 +12,6 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+
+# Live data, rebuilt every hour by the deploy workflow (python data-pipeline/build_live.py)
+frontend/public/data/live/

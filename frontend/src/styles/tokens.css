@@ -1,46 +1,82 @@
-/* Hallmark · v2.0.0 · genre: atmospheric · theme: DESIGN.md (by request, pinned by the user; space-navy revision 2026-11-08) · shape: one-screen film poster · job: try (open the 3D Earth) · hero: Poster, full-bleed NASA footage, centred · nav: wordmark left, bordered UA/EN switch right, nothing else · footer: none, one credit line inside the hero · posture: committed · signature: Earth from the ISS with the Sun rising over the limb, cut with PACE assembly and launch */
-/* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V4 · weakest: P, a single screen can only promise; the promise is the headline and the one big action into the globe */
-/* Hallmark · waive 39b · the language switch buttons are 32px inside a 40px bordered group so the top bar stays light over the film · the UA and EN switch is still a 44px-wide target */
-/* Hallmark · answered F19 · the serif runs at 300 and Inter at 400 and 500, three weights in all */
-/* Hallmark · answered F7 · the glass chips over the globe and the film (language switch, back, pause, search) share one recipe on purpose so the floating controls read as one set */
-/* Hallmark · answered F4 · the filled chips are toggle states (active rail tool, active language) and the play control, not competing primary actions; .btn is the one action style in panels */
-/* Hallmark · dismissed 28a · the lazy image is the GIBS legend inside a closed panel, not the largest paint */
-/* Hallmark · dismissed 77 · the user asked for a single screen with no scrolling; the globe page carries everything else */
-/* Hallmark · dismissed 41 · .hero__film, .hero__video and .hero__grade hold footage and a colour grade, no text; .hero sets Star ink */
-/* Hallmark · user-pinned deviations from the floor: 67 (14px uppercase button and switch labels) follows DESIGN.md, which the user supplied */
+/* Earth System Detective · design tokens · revision 2026-11-19 ("mix")
+   Layout after Google Earth (a floating tool column, a search pill, round map controls), surfaces
+   and motion after Design Bookmark's Motion Studies (solid dark cards, large radii, no strokes,
+   springs). Source of truth for colour, type, radius and motion; DESIGN.md explains them. */
 
 :root {
-  /* Space navy palette (DESIGN.md) */
-  --color-void: #03060f;
-  --color-navy: #081229;
-  --color-navy-2: #0f1d40;
-  --color-navy-3: #18295a;
-  --color-star: #eef2fb;
-  --color-star-deep: #d3dcf0;
-  --color-haze: #a9b8da;
+  color-scheme: dark;
+
+  /* ---------- surfaces ---------- */
+  --color-void: #04060b; /* space, page background */
+  --surface-1: #15171c; /* panels and cards over the globe */
+  --surface-2: #1f2228; /* rows, fields, buttons inside a panel */
+  --surface-3: #2a2e36; /* hover, pressed, tracks */
+  --surface-glass: rgb(21 23 28 / 0.86); /* floating controls; blurred behind */
+  --fill-1: rgb(255 255 255 / 0.05);
+  --fill-2: rgb(255 255 255 / 0.09);
+  --fill-3: rgb(255 255 255 / 0.14);
+  --line: rgb(255 255 255 / 0.08); /* hairline separators only, never boxes */
+  --shadow-float: 0 10px 40px rgb(0 0 0 / 0.38), 0 2px 8px rgb(0 0 0 / 0.24);
+
+  /* ---------- text ---------- */
+  --text-1: #f4f6f9;
+  --text-2: rgb(244 246 249 / 0.76);
+  --text-3: #9198a4;
+  --inverse: #f4f6f9; /* primary pills, thumbs */
+  --on-inverse: #0b0d12;
+
+  /* ---------- accents ---------- */
+  --accent: #8ab4f8; /* active tool, focus, links */
+  --accent-soft: rgb(138 180 248 / 0.16);
+  --green: #34d17a;
+  --green-soft: rgb(52 209 122 / 0.14);
+  --orange: #ff9f0a;
+  --red: #ff5a5f;
+  --red-soft: rgb(255 90 95 / 0.14);
+  --yellow: #ffd23f;
+
+  /* ---------- legacy names, mapped to the new system ---------- */
+  --color-navy: var(--on-inverse);
+  --color-navy-2: var(--surface-2);
+  --color-navy-3: var(--surface-3);
+  --color-star: var(--text-1);
+  --color-star-deep: #d4d9e1;
+  --color-haze: var(--text-3);
   --color-sunrise: #f3bd6e;
   --color-sunrise-deep: #e7a54a;
-  --color-star-muted: color-mix(in oklab, var(--color-star) 74%, transparent);
-  --color-star-rule: color-mix(in oklab, var(--color-star) 42%, transparent);
-  --color-glass: color-mix(in oklab, var(--color-navy) 55%, transparent);
-  /* Studio controls over the globe: solid enough that imagery never shows through them. */
-  --color-panel: color-mix(in oklab, var(--color-navy) 95%, transparent);
-  --color-control: var(--color-navy-2);
-  --color-control-hover: var(--color-navy-3);
-  --color-control-line: color-mix(in oklab, var(--color-star) 34%, transparent);
-  --color-focus: var(--color-sunrise);
+  --color-star-muted: var(--text-2);
+  --color-star-rule: var(--line);
+  --color-glass: var(--surface-glass);
+  --color-panel: var(--surface-1);
+  --color-control: var(--surface-2);
+  --color-control-hover: var(--surface-3);
+  --color-control-line: transparent;
+  --color-focus: var(--accent);
 
   /* Chart series and the significance light */
   --color-series-a: #f3bd6e;
   --color-series-b: #8fbcff;
-  --color-good: #63d197;
+  --color-good: #34d17a;
   --color-warn: #f3bd6e;
 
-  /* Ukraine war layer */
+  /* Ukraine layers */
   --color-occupied: #e0533f;
   --color-combat: #f39a3e;
   --color-fire: #ffe44d;
-  /* Ordinal year ramps for the seasonal chart (validated on the navy surface): older dimmer, newer brighter. */
+  --color-front-occupied: #d9483b;
+  --color-front-liberated: #3d8bfd;
+  --color-front-unknown: #9b8f86;
+  --color-ukraine: #ffd23f; /* Ukraine's outline on the globe and the map */
+
+  /* Air quality (US EPA AQI bands, as SaveEcoBot shows them) */
+  --aqi-1: #34d17a;
+  --aqi-2: #ffd23f;
+  --aqi-3: #ff9f0a;
+  --aqi-4: #ff5a5f;
+  --aqi-5: #b25cf0;
+  --aqi-6: #8c1c3a;
+
+  /* Ordinal year ramps for the seasonal chart */
   --color-year-a-1: #8a6a3c;
   --color-year-a-2: #b38a4f;
   --color-year-a-3: #d9a75e;
@@ -62,28 +98,29 @@
   --color-pairs-down: #8fbcff;
 
   /* Colours read by the WebGL globe */
-  --color-atmosphere: #7fb0ff;
+  --color-atmosphere: #6fa6ff;
   --color-stars: #dfe7fb;
+  --color-night-lights: #ffc982;
 
-  /* Type */
-  --font-display: "Source Serif 4 Variable", "Source Serif 4", Georgia, "Times New Roman", serif;
+  /* ---------- type ---------- */
+  --font-display: "Inter Variable", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-body: "Inter Variable", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
-
-  --weight-display: 300;
-
+  --font-serif: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --weight-display: 600;
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-base: 15px;
+  --fs-lg: 17px;
   --text-label: 14px;
-  --text-body: 16px;
-  --text-lede: clamp(18px, 1.4vw, 22px);
-  --text-display: clamp(44px, 7.4vw, 128px);
-  --text-wordmark: 15px;
-  --text-cta: 15px;
+  --text-body: 15px;
+  --text-lede: clamp(16px, 1.25vw, 19px);
+  --text-display: clamp(40px, 5.6vw, 88px);
+  --track-display: -0.035em;
 
-  --track-display: -0.02em;
-  --track-label: -0.01em;
-  --track-cta: 0.02em;
-
-  /* Space: 4px base */
-  --gutter: clamp(16px, 1.6vw, 32px);
+  /* ---------- space ---------- */
+  --gutter: clamp(12px, 1.4vw, 24px);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -92,18 +129,47 @@
   --space-6: 32px;
   --space-7: 48px;
   --space-8: 64px;
-
   --container: 1600px;
-  --radius-chip: 2px;
-  --cta-height: 56px;
 
-  /* Motion */
-  --dur-chip: 0.3s;
+  /* ---------- radius: inner = outer minus the padding between ---------- */
+  --r-xs: 8px;
+  --r-row: 12px;
+  --r-panel: 20px;
+  --r-sheet: 24px;
+  --r-pill: 999px;
+  --radius-chip: var(--r-row);
+  --cta-height: 52px;
+
+  /* ---------- motion ---------- */
+  /* Springs are "stiffness damping" (Design Bookmark tokens.css, unchanged values). */
+  --spring-follow: 900 50; /* held by the pointer: no overshoot, no lag */
+  --spring-settle: 280 22; /* landing on a value: one small overshoot */
+  --spring-soft: 260 24; /* panels and sheets */
+  --spring-lead: 620 36; /* stretchy highlight: the edge facing the move */
+  --spring-trail: 190 19; /* stretchy highlight: the edge that lags */
+  --spring-pop: 520 16; /* icon or number pop */
+  --spring-fade: 420 32; /* opacity and small slides */
+  --stagger: 45;
+  /* Jelly Slider */
+  --slider-follow: 900 50;
+  --slider-bubble: 420 22;
+  --slider-release: 300 14;
+  --slider-glide: 420 34;
+  --slider-blur: 8;
+  /* Side Nav (the tool column's highlight) */
+  --nav-lead: 560 34;
+  --nav-trail: 220 21;
+  /* Rolling numbers in the stat card */
+  --count-roll: 320 24;
+
+  --dur-chip: 0.2s;
   --ease-chip: ease;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fade: 1.4s;
   --ease-fade: cubic-bezier(0.4, 0, 0.2, 1);
 
   --z-film: 0;
   --z-veil: 1;
   --z-content: 2;
+  --z-float: 3;
 }

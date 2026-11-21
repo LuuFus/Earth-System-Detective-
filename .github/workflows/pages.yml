@@ -1,11 +1,16 @@
 # Builds the site and publishes it to the gh-pages branch, which GitHub Pages serves at
-# https://<owner>.github.io/<repository>/. Runs on every push to main and on demand.
+# https://<owner>.github.io/<repository>/. Runs on every push to main, on demand, and every hour
+# to refresh the live data (weather forecast from NOAA GFS, fires from NASA FIRMS): those servers
+# do not answer browsers on other sites, so the data is fetched here and published as files.
+# Note: GitHub pauses scheduled runs in a repository with no activity for 60 days.
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
 
 permissions:
   contents: write
@@ -26,6 +31,15 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Live data (weather, fires)
+        run: |
+          pip install --quiet numpy
+          python data-pipeline/build_live.py
+
       - name: Install
         working-directory: frontend
         run: npm ci
@@ -34,6 +48,8 @@ jobs:
         working-directory: frontend
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+          # Free token from https://aqicn.org/data-platform/token/ saved as a repository secret.
+          VITE_WAQI_TOKEN: ${{ secrets.WAQI_TOKEN }}
         run: |
           npm run build
           # Pages has no server-side routing: serve the app for /explore and any other path.

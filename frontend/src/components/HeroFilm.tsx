@@ -1,8 +1,11 @@
+import { Link } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { filmClips, filmPoster, type Rendition } from '../data/media';
 import { usePageVisible, useReducedMotion } from '../hooks/useMedia';
 import { useI18n } from '../i18n/I18n';
+import { useLiveText } from '../i18n/live';
 import { SplitButton } from './SplitButton';
+import { Icon } from './studio/Icon';
 import { TopBar } from './TopBar';
 
 /** Seconds a clip may sit without playing before the film moves to a buffered one. */
@@ -24,6 +27,7 @@ function pickRendition(): Rendition {
  * that has buffered, looping the current one meanwhile, so a slow network never shows a black frame. */
 export function HeroFilm() {
   const { t } = useI18n();
+  const about = useLiveText().about;
   const reduced = useReducedMotion();
   const pageVisible = usePageVisible();
 
@@ -156,24 +160,39 @@ export function HeroFilm() {
       <div className="hero__grade" aria-hidden="true" />
       <div className="hero__veil" aria-hidden="true" />
 
-      <TopBar />
+      <TopBar sources />
 
-      <div className="hero__center">
+      <div className="hero__content">
+        <p className="hero__eyebrow">{t.hero.eyebrow}</p>
         <h1 id="hero-title" className="display hero__title">
           {t.hero.title}
         </h1>
         <p className="lede hero__lede">{t.hero.lede}</p>
-        <SplitButton to="/explore">{t.hero.cta}</SplitButton>
+        <div className="hero__actions">
+          <SplitButton to="/explore">{t.hero.cta}</SplitButton>
+          <Link className="pill-btn pill-btn--glass" to="/map?mode=weather">
+            <Icon name="weather" size={18} />
+            {t.hero.links.weather}
+          </Link>
+          <Link className="pill-btn pill-btn--glass" to="/explore?panel=fires">
+            <Icon name="fire" size={18} />
+            {t.hero.links.fires}
+          </Link>
+          <Link className="pill-btn pill-btn--glass" to="/explore?panel=ukraine">
+            <Icon name="ukraine" size={18} />
+            {t.hero.links.ukraine}
+          </Link>
+        </div>
       </div>
 
       <div className="hero__foot">
-        <p className="hero__credit">{t.hero.credit}</p>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label={paused ? t.hero.play : t.hero.pause}
-          onClick={() => setPaused((p) => !p)}
-        >
+        <p className="hero__credit">
+          {t.hero.credit} · <span className="hero__authors">IT Detectives</span>
+        </p>
+        <a className="hero__scroll" href="#about">
+          {about.scroll} ↓
+        </a>
+        <button type="button" className="round-btn" aria-label={paused ? t.hero.play : t.hero.pause} onClick={() => setPaused((p) => !p)}>
           {paused ? (
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
               <path d="M4 2.5v11l9-5.5z" fill="currentColor" />

@@ -95,6 +95,13 @@ export function inCountry(c: GeoCountry, lat: number, lon: number): boolean {
  * simplified outlines, so a point on the water within about 30 km of a country counts as in it;
  * the open sea gives null.
  */
+/** The country at a point, without searching nearby (fast enough for pointer moves). */
+export async function countryExact(lat: number, lon: number): Promise<GeoCountry | null> {
+  const all = await loadCountries();
+  for (const c of all.values()) if (inCountry(c, lat, lon)) return c;
+  return null;
+}
+
 export async function countryAt(lat: number, lon: number): Promise<GeoCountry | null> {
   const all = await loadCountries();
   const at = (la: number, lo: number) => {

@@ -5,7 +5,11 @@ import { cases, type Case, type GistempMode } from '../data/cases';
 import { countries } from '../data/countries';
 import { variableById, type VariableId } from '../data/variables';
 
-export type Panel = 'layers' | 'cases' | 'weather' | 'glossary' | 'share';
+export type Panel = 'layers' | 'fires' | 'ukraine' | 'weather' | 'cases' | 'glossary' | 'share';
+/** How the globe is lit: evenly, by the real Sun (night side with city lights), or all night. */
+export type Light = 'flat' | 'sun' | 'night';
+/** A GFS field draped over the globe. */
+export type WeatherField = 'none' | 'wind' | 'temp' | 'precip' | 'cloud';
 export type Slot = 'A' | 'B';
 /** How the chart shows time: yearly values, monthly, daily, or the seasonal cycle. */
 export type ChartView = 'year' | 'month' | 'day' | 'cycle';
@@ -48,6 +52,20 @@ export type ExploreState = {
   speed: 1 | 2 | 4;
   /** Before/after shutter: the year on the left of the globe, or null when off. */
   compare: number | null;
+  /** Map style: shaded relief under the imagery, and the lighting. */
+  relief: boolean;
+  light: Light;
+  /** Fires of the last 48 hours (NASA FIRMS). */
+  liveFires: boolean;
+  /** Ukraine card layers: air quality (SaveEcoBot), radiation (Safecast), the front (DeepState). */
+  aqi: boolean;
+  radiation: boolean;
+  front: boolean;
+  /** Blackout: night lights over Ukraine before and during the November 2022 blackouts. */
+  blackout: boolean;
+  /** Wind on the globe as moving lines, and a weather field under it (NOAA GFS). */
+  wind: boolean;
+  field: WeatherField;
 };
 
 export const initialState: ExploreState = {
@@ -75,6 +93,15 @@ export const initialState: ExploreState = {
   playing: false,
   speed: 1,
   compare: null,
+  relief: true,
+  light: 'flat',
+  liveFires: false,
+  aqi: false,
+  radiation: false,
+  front: false,
+  blackout: false,
+  wind: false,
+  field: 'none',
 };
 
 export type Action =
@@ -100,6 +127,8 @@ export type Action =
   | { type: 'speed'; speed: 1 | 2 | 4 }
   | { type: 'compare'; year: number | null }
   | { type: 'case'; c: Case }
+  | { type: 'set'; state: Partial<Pick<ExploreState, 'relief' | 'light' | 'liveFires' | 'aqi' | 'radiation' | 'front' | 'wind' | 'field'>> }
+  | { type: 'blackout'; on: boolean }
   | { type: 'hydrate'; state: Partial<ExploreState> };
 
 /** Numeric variable that best matches the map layer. */
@@ -118,7 +147,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         const first = Number(v.imagery.first.slice(0, 4));
         year = Math.min(last, Math.max(first, year));
       }
-      return { ...state, variable: action.id, year, chartVariable: chartFor(action.id, state.chartVariable), caseId: null, playing: false };
+      return { ...state, variable: action.id, year, chartVariable: chartFor(action.id, state.chartVariable), caseId: null, playing: false, blackout: state.blackout && action.id === 'nightlights' };
     }
     case 'mode':
       return { ...state, gistempMode: action.mode, playing: false };
@@ -129,6 +158,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
       return {
         ...state,
         compare: action.year,
+        blackout: action.year === null ? false : state.blackout,
         playing: false,
         gistempMode: action.year !== null && state.variable === 'gistemp' ? 'year' : state.gistempMode,
       };
@@ -201,6 +231,13 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         compare: c.compare ?? null,
       };
     }
+    case 'set':
+      return { ...state, ...action.state };
+    case 'blackout':
+      // Night lights with the shutter: left before (2021), right during the blackouts (2022).
+      return action.on
+        ? { ...state, blackout: true, variable: 'nightlights', year: 2022, compare: 2021, playing: false, caseId: null }
+        : { ...state, blackout: false, compare: null, variable: state.variable === 'nightlights' ? null : state.variable };
     case 'hydrate':
       return { ...state, ...action.state };
   }
@@ -250,6 +287,18 @@ export function toQuery(state: ExploreState, view: CameraView | null): string {
   if (state.chartVariable !== 'gistemp') q.set('cv', state.chartVariable);
   if (state.chartView !== 'year') q.set('cr', state.chartView);
   if (state.compare !== null) q.set('cmp', String(state.compare));
+  const on = [
+    !state.relief && 'sat',
+    state.liveFires && 'fires',
+    state.aqi && 'aqi',
+    state.radiation && 'rad',
+    state.front && 'front',
+    state.blackout && 'blackout',
+    state.wind && 'wind',
+  ].filter(Boolean);
+  if (on.length) q.set('on', on.join(','));
+  if (state.light !== 'flat') q.set('light', state.light);
+  if (state.field !== 'none') q.set('f', state.field);
   if (view) q.set('cam', `${view.lat.toFixed(2)},${view.lon.toFixed(2)},${view.distance.toFixed(2)}`);
   return q.toString();
 }
@@ -287,6 +336,20 @@ export function fromQuery(search: string): { state: Partial<ExploreState>; view:
   if (cr === 'month' || cr === 'day' || cr === 'cycle') state.chartView = cr;
   const cmp = Number(q.get('cmp'));
   if (cmp > 1800 && cmp < 2100) state.compare = cmp;
+  const on = new Set((q.get('on') ?? '').split(','));
+  if (on.has('sat')) state.relief = false;
+  if (on.has('fires')) state.liveFires = true;
+  if (on.has('aqi')) state.aqi = true;
+  if (on.has('rad')) state.radiation = true;
+  if (on.has('front')) state.front = true;
+  if (on.has('blackout') && state.variable === 'nightlights') state.blackout = true;
+  if (on.has('wind')) state.wind = true;
+  const panel = q.get('panel');
+  if (panel === 'fires' || panel === 'ukraine' || panel === 'weather' || panel === 'layers' || panel === 'cases') state.panel = panel;
+  const light = q.get('light');
+  if (light === 'sun' || light === 'night') state.light = light;
+  const fld = q.get('f');
+  if (fld === 'wind' || fld === 'temp' || fld === 'precip' || fld === 'cloud') state.field = fld;
   const cam = (q.get('cam') ?? '').split(',').map(Number);
   const view = cam.length === 3 && cam.every(Number.isFinite) ? { lat: cam[0], lon: cam[1], distance: cam[2] } : null;
   const caseToApply = cases.find((c) => c.id === q.get('case')) ?? null;

@@ -1,0 +1,441 @@
+"""Live data for the site: the weather forecast (NOAA GFS) and fires (NASA FIRMS).
+
+Both sources refuse requests from a browser on another site (no CORS), so a GitHub Action runs
+this script every hour and publishes the files with the site. Locally:
+
+    python data-pipeline/build_live.py            # weather and fires
+    python data-pipeline/build_live.py --no-gfs   # fires only (fast)
+
+Weather: the newest complete GFS run on a 1° grid, every 3 hours from +3 h to +72 h, read with
+grib2.py. Each frame is one file of six byte grids, 360 x 181, rows north to south, columns from
+0° east:
+    u, v       wind at 10 m, (byte - 128) * 0.5 m/s
+    t          air at 2 m, byte / 2 - 70 °C
+    precip     rain and snow, (byte / 32)^2 mm per hour
+    gust       wind gusts, byte / 4 m/s
+    cloud      total cloud, byte %
+
+Fires: VIIRS detections of the last 48 hours from NOAA-20, NOAA-21 and Suomi NPP, one point per
+375 m pixel (the newest detection, the strongest fire). Arrays one after another: lat float32,
+lon float32, age in minutes uint16, fire power in MW uint16, flags uint8 (1 = night, 2 = high
+confidence). Plus fires per day in Ukraine for the last 7 days.
+
+Air: PM2.5 and PM10 from Sensor.Community's open citizen sensors (hourly means, outdoor only),
+with the US EPA Air Quality Index computed from them (2024 breakpoints), as air.json.
+
+Binary files are zlib-compressed (the site inflates them with DecompressionStream).
+
+Output: frontend/public/data/live/manifest.json, weather/fNNN.bin, fires.bin, air.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as dt
+import io
+import json
+import math
+import sys
+import time
+import urllib.error
+import urllib.request
+import zlib
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from grib2 import read_grib2  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "frontend" / "public" / "data" / "live"
+UA_SHAPE = ROOT / "frontend" / "public" / "data" / "geo" / "countries.json"
+AGENT = "EarthSystemDetective/1.0 (open-source educational site)"
+
+NOMADS = "https://nomads.ncep.noaa.gov"
+HOURS = list(range(3, 73, 3))
+# (discipline, category, number, surface type) -> name; levels are checked separately.
+WANTED = {
+    (0, 2, 2, 103): "u",
+    (0, 2, 3, 103): "v",
+    (0, 0, 0, 103): "t",
+    (0, 1, 7, 1): "precip",
+    (0, 2, 22, 1): "gust",
+    (0, 6, 1, 10): "cloud",
+}
+ORDER = ["u", "v", "t", "precip", "gust", "cloud"]
+
+FIRMS = "https://firms.modaps.eosdis.nasa.gov/data/active_fire"
+SATELLITES = [
+    ("noaa-20-viirs-c2", "J1_VIIRS_C2", "NOAA-20"),
+    ("noaa-21-viirs-c2", "J2_VIIRS_C2", "NOAA-21"),
+    ("suomi-npp-viirs-c2", "SUOMI_VIIRS_C2", "Suomi NPP"),
+    # MODIS on Terra and Aqua: coarser (1 km) but often the freshest pass, and a backup when a
+    # VIIRS feed is down.
+    ("modis-c6.1", "MODIS_C6_1", "MODIS Terra/Aqua"),
+]
+
+
+def confidence(r: dict) -> str:
+    """VIIRS gives l/n/h, MODIS a number from 0 to 100."""
+    c = (r.get("confidence") or "").strip().lower()
+    if c in ("l", "low"):
+        return "low"
+    if c in ("h", "high"):
+        return "high"
+    if c.isdigit():
+        v = int(c)
+        return "low" if v < 30 else "high" if v >= 80 else "nominal"
+    return "nominal"
+
+
+def get(url: str, tries: int = 4, timeout: int = 120) -> bytes:
+    last: Exception | None = None
+    for k in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": AGENT})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            last = e
+            time.sleep(2 + 3 * k)
+    raise RuntimeError(f"{url}: {last}")
+
+
+def exists(url: str) -> bool:
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": AGENT})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+# ---------- weather ----------
+
+
+def latest_run(now: dt.datetime) -> dt.datetime:
+    """Newest GFS cycle whose last frame we need is already on NOMADS."""
+    cycle = now.replace(minute=0, second=0, microsecond=0, hour=now.hour // 6 * 6)
+    for _ in range(6):
+        stamp = cycle.strftime("%Y%m%d")
+        hh = cycle.strftime("%H")
+        url = f"{NOMADS}/pub/data/nccf/com/gfs/prod/gfs.{stamp}/{hh}/atmos/gfs.t{hh}z.pgrb2.1p00.f{HOURS[-1]:03d}.idx"
+        if exists(url):
+            return cycle
+        cycle -= dt.timedelta(hours=6)
+    raise RuntimeError("no complete GFS run found on NOMADS")
+
+
+def frame_url(run: dt.datetime, hour: int) -> str:
+    stamp = run.strftime("%Y%m%d")
+    hh = run.strftime("%H")
+    params = [
+        f"dir=%2Fgfs.{stamp}%2F{hh}%2Fatmos",
+        f"file=gfs.t{hh}z.pgrb2.1p00.f{hour:03d}",
+        "var_UGRD=on",
+        "var_VGRD=on",
+        "var_TMP=on",
+        "var_PRATE=on",
+        "var_GUST=on",
+        "var_TCDC=on",
+        "lev_10_m_above_ground=on",
+        "lev_2_m_above_ground=on",
+        "lev_surface=on",
+        "lev_entire_atmosphere=on",
+    ]
+    return f"{NOMADS}/cgi-bin/filter_gfs_1p00.pl?" + "&".join(params)
+
+
+def quantize(name: str, v: np.ndarray) -> np.ndarray:
+    if name in ("u", "v"):
+        q = np.round(v / 0.5) + 128
+    elif name == "t":
+        q = np.round((v - 273.15 + 70) * 2)
+    elif name == "precip":
+        q = np.round(np.sqrt(np.maximum(v, 0) * 3600) * 32)  # kg/m²/s -> mm/h
+    elif name == "gust":
+        q = np.round(v * 4)
+    else:
+        q = np.round(v)
+    return np.clip(q, 0, 255).astype(np.uint8)
+
+
+def build_weather(now: dt.datetime) -> dict:
+    run = latest_run(now)
+    print(f"GFS run {run:%Y-%m-%d %HZ}")
+    folder = OUT / "weather"
+    folder.mkdir(parents=True, exist_ok=True)
+    frames = []
+    for hour in HOURS:
+        fields = read_grib2(get(frame_url(run, hour)))
+        grids: dict[str, np.ndarray] = {}
+        for f in fields:
+            name = WANTED.get((f.discipline, f.category, f.number, f.surface))
+            if not name:
+                continue
+            if name in ("u", "v") and f.level != 10:
+                continue
+            if name == "t" and f.level != 2:
+                continue
+            if (f.ni, f.nj, f.lat1, f.lon1) != (360, 181, 90.0, 0.0):
+                raise RuntimeError(f"unexpected GFS grid {f.ni}x{f.nj} from {f.lat1},{f.lon1}")
+            grids[name] = quantize(name, f.values)
+        missing = [n for n in ORDER if n not in grids]
+        if missing:
+            raise RuntimeError(f"f{hour:03d}: missing {missing}")
+        blob = b"".join(grids[n].tobytes() for n in ORDER)
+        name = f"f{hour:03d}.bin"
+        (folder / name).write_bytes(zlib.compress(blob, 9))
+        valid = run + dt.timedelta(hours=hour)
+        frames.append({"hour": hour, "time": valid.strftime("%Y-%m-%dT%H:%MZ"), "file": f"weather/{name}"})
+        print(f"  +{hour:02d} h  {valid:%d %b %H:%MZ}  {len(blob) // 1024} KB")
+    # Frames from an older run are left behind on a new run with the same names: nothing to delete.
+    return {
+        "source": "NOAA NCEP GFS 0.25/1.0 deg, via NOMADS",
+        "url": "https://www.nco.ncep.noaa.gov/pmb/products/gfs/",
+        "run": run.strftime("%Y-%m-%dT%HZ"),
+        "grid": {"ni": 360, "nj": 181, "lat0": 90, "lon0": 0, "step": 1},
+        "vars": ORDER,
+        "compression": "deflate",
+        "frames": frames,
+    }
+
+
+# ---------- fires ----------
+
+
+def load_ukraine() -> list[list[tuple[float, float]]]:
+    """Ukraine's outline from the site's Natural Earth countries (Crimea included)."""
+    data = json.loads(UA_SHAPE.read_text(encoding="utf-8"))
+    items = data if isinstance(data, list) else data.get("countries", data.get("features", []))
+    for c in items:
+        code = c.get("code") or c.get("iso") or c.get("properties", {}).get("ISO_A2")
+        if code == "UA":
+            rings = c.get("rings") or []
+            return [[(ring[i], ring[i + 1]) for i in range(0, len(ring), 2)] for ring in rings]
+    return []
+
+
+def inside(rings: list[list[tuple[float, float]]], lon: float, lat: float) -> bool:
+    hit = False
+    for ring in rings:
+        n = len(ring)
+        j = n - 1
+        for i in range(n):
+            xi, yi = ring[i]
+            xj, yj = ring[j]
+            if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi:
+                hit = not hit
+            j = i
+    return hit
+
+
+def read_firms(region: str, span: str) -> list[dict]:
+    rows: list[dict] = []
+    for folder, prefix, label in SATELLITES:
+        url = f"{FIRMS}/{folder}/csv/{prefix}_{region}_{span}.csv"
+        try:
+            text = get(url, timeout=300).decode("utf-8", "replace")
+        except RuntimeError as e:
+            print(f"  {label}: {e}")
+            continue
+        part = list(csv.DictReader(io.StringIO(text)))
+        print(f"  {label} {region} {span}: {len(part)} detections")
+        rows.extend(part)
+    return rows
+
+
+def build_fires(now: dt.datetime) -> dict:
+    print("FIRMS fires")
+    rows = read_firms("Global", "48h")
+    # One point per ~375 m pixel: the newest detection and the strongest fire there.
+    cells: dict[tuple[int, int], list] = {}
+    for r in rows:
+        try:
+            lat = float(r["latitude"])
+            lon = float(r["longitude"])
+            when = dt.datetime.strptime(f"{r['acq_date']} {int(r['acq_time']):04d}", "%Y-%m-%d %H%M").replace(tzinfo=dt.timezone.utc)
+            frp = float(r.get("frp") or 0)
+        except (KeyError, ValueError):
+            continue
+        conf = confidence(r)
+        if conf == "low":
+            continue
+        key = (round(lat / 0.0035), round(lon / 0.0035))
+        age = max(0, int((now - when).total_seconds() // 60))
+        flags = (1 if (r.get("daynight") or "D") == "N" else 0) | (2 if conf == "high" else 0)
+        old = cells.get(key)
+        if old is None:
+            cells[key] = [lat, lon, age, frp, flags]
+        else:
+            old[2] = min(old[2], age)
+            old[3] = max(old[3], frp)
+            old[4] |= flags & 2
+    pts = np.array(list(cells.values()), dtype=np.float64) if cells else np.zeros((0, 5))
+    # Ages are counted from the build time; the site adds the time since the build.
+    newest = (now - dt.timedelta(minutes=float(pts[:, 2].min()))).strftime("%Y-%m-%dT%H:%MZ") if len(pts) else None
+    order = np.argsort(-pts[:, 2]) if len(pts) else np.zeros(0, dtype=int)  # oldest first, newest drawn on top
+    pts = pts[order]
+    n = len(pts)
+    blob = b"".join(
+        [
+            pts[:, 0].astype(np.float32).tobytes(),
+            pts[:, 1].astype(np.float32).tobytes(),
+            np.clip(pts[:, 2], 0, 65535).astype(np.uint16).tobytes(),
+            np.clip(np.round(pts[:, 3]), 0, 65535).astype(np.uint16).tobytes(),
+            pts[:, 4].astype(np.uint8).tobytes(),
+        ]
+    )
+    (OUT / "fires.bin").write_bytes(zlib.compress(blob, 9))
+    print(f"  {n} fire pixels, {len(blob) // 1024} KB")
+
+    # Fires per day in Ukraine, last 7 days (FIRMS Europe files cover it).
+    rings = load_ukraine()
+    days: dict[str, set] = {}
+    for r in read_firms("Europe", "7d"):
+        try:
+            lat = float(r["latitude"])
+            lon = float(r["longitude"])
+        except (KeyError, ValueError):
+            continue
+        if not (44 <= lat <= 52.5 and 22 <= lon <= 40.3) or (rings and not inside(rings, lon, lat)):
+            continue
+        if confidence(r) == "low":
+            continue
+        days.setdefault(r["acq_date"], set()).add((round(lat / 0.0035), round(lon / 0.0035)))
+    today = now.date()
+    ukraine = []
+    for k in range(6, -1, -1):
+        d = (today - dt.timedelta(days=k)).isoformat()
+        ukraine.append({"date": d, "count": len(days.get(d, ()))})
+    print(f"  Ukraine, 7 days: {[x['count'] for x in ukraine]}")
+    return {
+        "source": "NASA FIRMS, near real time: VIIRS 375 m (NOAA-20, NOAA-21, Suomi NPP) and MODIS 1 km (Terra, Aqua)",
+        "newest": newest,
+        "url": "https://firms.modaps.eosdis.nasa.gov/",
+        "file": "fires.bin",
+        "compression": "deflate",
+        "count": n,
+        "hours": 48,
+        "ukraine": ukraine,
+    }
+
+
+# ---------- air ----------
+
+SENSOR_COMMUNITY = "https://data.sensor.community/static/v2/data.1h.json"
+# US EPA AQI breakpoints (2024): concentration ranges and index ranges.
+PM25_BP = [(0.0, 9.0, 0, 50), (9.1, 35.4, 51, 100), (35.5, 55.4, 101, 150), (55.5, 125.4, 151, 200), (125.5, 225.4, 201, 300), (225.5, 325.4, 301, 500)]
+PM10_BP = [(0, 54, 0, 50), (55, 154, 51, 100), (155, 254, 101, 150), (255, 354, 151, 200), (355, 424, 201, 300), (425, 604, 301, 500)]
+
+
+def aqi_from(c: float, table) -> int:
+    for lo, hi, ilo, ihi in table:
+        if c <= hi:
+            return round(ilo + (ihi - ilo) * (max(c, lo) - lo) / (hi - lo))
+    return 500
+
+
+def build_air(now: dt.datetime) -> dict:
+    print("Sensor.Community air")
+    rows = json.loads(get(SENSOR_COMMUNITY, timeout=300).decode("utf-8"))
+    by_place: dict = {}
+    for r in rows:
+        loc = r.get("location") or {}
+        if str(loc.get("indoor", "0")) == "1":
+            continue
+        try:
+            lat = float(loc["latitude"])
+            lon = float(loc["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        vals = {}
+        for v in r.get("sensordatavalues") or []:
+            if v.get("value_type") in ("P1", "P2"):
+                try:
+                    vals[v["value_type"]] = float(v["value"])
+                except (TypeError, ValueError):
+                    pass
+        pm25 = vals.get("P2")
+        pm10 = vals.get("P1")
+        # Broken or saturated sensors report impossible values: leave them out.
+        if pm25 is None or not (0 <= pm25 < 500) or (pm10 is not None and not (0 <= pm10 < 1000)):
+            continue
+        key = (round(lat, 3), round(lon, 3))
+        by_place[key] = (lat, lon, pm25, pm10, loc.get("country") or "")
+    # Low-cost sensors fail in fog or when broken and read hundreds of µg/m³ next to neighbours
+    # reading tens. A sensor far above the median of its neighbours within 25 km is dropped.
+    places = list(by_place.values())
+    cells: dict = {}
+    for k, (lat, lon, *_rest) in enumerate(places):
+        cells.setdefault((int((lat + 90) * 4), int((lon + 180) * 4)), []).append(k)
+    kept = []
+    dropped = 0
+    for k, (lat, lon, pm25, pm10, cc) in enumerate(places):
+        a, b = int((lat + 90) * 4), int((lon + 180) * 4)
+        near = []
+        for da in (-1, 0, 1):
+            for db in (-1, 0, 1):
+                for j in cells.get((a + da, b + db), ()):
+                    if j == k:
+                        continue
+                    la, lo = places[j][0], places[j][1]
+                    if (la - lat) ** 2 + ((lo - lon) * math.cos(math.radians(lat))) ** 2 < (25 / 111.2) ** 2:
+                        near.append(places[j][2])
+        if pm25 > 250 or (len(near) >= 3 and pm25 > max(3 * float(np.median(near)), float(np.median(near)) + 60)):
+            dropped += 1
+            continue
+        kept.append(places[k])
+    print(f"  dropped {dropped} outliers")
+    points = []
+    for lat, lon, pm25, pm10, cc in kept:
+        aqi = max(aqi_from(pm25, PM25_BP), aqi_from(pm10, PM10_BP) if pm10 is not None else 0)
+        points.append([round(lat, 3), round(lon, 3), round(pm25, 1), None if pm10 is None else round(pm10, 1), aqi, cc])
+    (OUT / "air.json").write_text(json.dumps({"built": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "p": points}, separators=(",", ":")), encoding="utf-8")
+    print(f"  {len(points)} outdoor sensors")
+    return {
+        "source": "Sensor.Community (open citizen sensors), hourly means; AQI by US EPA 2024 breakpoints",
+        "url": "https://sensor.community/",
+        "file": "air.json",
+        "count": len(points),
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--no-gfs", action="store_true", help="skip the weather forecast")
+    ap.add_argument("--no-fires", action="store_true", help="skip the fires")
+    ap.add_argument("--no-air", action="store_true", help="skip the air sensors")
+    args = ap.parse_args()
+    OUT.mkdir(parents=True, exist_ok=True)
+    now = dt.datetime.now(dt.timezone.utc)
+    manifest_path = OUT / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    failures = []
+    if not args.no_gfs:
+        try:
+            manifest["weather"] = build_weather(now)
+        except Exception as e:  # keep the last good forecast
+            failures.append(f"weather: {e}")
+    if not args.no_fires:
+        try:
+            manifest["fires"] = build_fires(now)
+        except Exception as e:
+            failures.append(f"fires: {e}")
+    if not args.no_air:
+        try:
+            manifest["air"] = build_air(now)
+        except Exception as e:
+            failures.append(f"air: {e}")
+    manifest["built"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    for f in failures:
+        print("FAILED", f)
+    if failures and not manifest.get("weather") and not manifest.get("fires"):
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

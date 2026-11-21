@@ -1,6 +1,17 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { useLiveText } from '../../i18n/live';
 import { useStudio } from '../../i18n/useStudio';
+import { JellySlider } from '../ui/JellySlider';
 import { Icon } from './Icon';
+
+/** Round years for the marks under a year slider: every 10, 20, 25 or 50 years. */
+function yearMarks([a, b]: [number, number]): { majors: number[]; minor: number } {
+  const span = b - a;
+  const step = span <= 30 ? 5 : span <= 60 ? 10 : span <= 120 ? 20 : 25;
+  const majors: number[] = [];
+  for (let y = Math.ceil(a / step) * step; y <= b; y += step) majors.push(y);
+  return { majors, minor: step / 5 >= 1 ? step / 5 : 0 };
+}
 
 type Props = {
   /** Map year slider: shown when the layer changes with the year. */
@@ -24,11 +35,23 @@ type Props = {
   onPeriod: (from: number, to: number) => void;
   onPlay: (on: boolean) => void;
   onSpeed: (speed: 1 | 2 | 4) => void;
+  /** Playback runs from this year to the last one. */
+  playFrom: number;
+  onPlayFrom: (year: number) => void;
+  /** Show the analysis period (it only matters for the analysis and the temperature trend). */
+  showPeriod: boolean;
 };
 
 /** Bottom bar: play the years, pick the map year and the analysis period. */
 export function Timeline(p: Props) {
   const t = useStudio().timeline;
+  const lt = useLiveText().timeline;
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('timeline-collapsed') === '1');
+  const collapse = (on: boolean) => {
+    localStorage.setItem('timeline-collapsed', on ? '1' : '0');
+    setCollapsed(on);
+  };
+  const fromId = useId();
   const yearId = useId();
   const leftId = useId();
   const monthId = useId();
@@ -45,10 +68,30 @@ export function Timeline(p: Props) {
       observer.disconnect();
       root?.style.removeProperty('--timeline-real');
     };
-  }, []);
+  }, [collapsed]);
   const [min, max] = p.periodRange;
   const span = Math.max(1, max - min);
   const nextSpeed = (p.speed === 1 ? 2 : p.speed === 2 ? 4 : 1) as 1 | 2 | 4;
+  const marks = yearMarks(p.yearRange);
+
+  const years: number[] = [];
+  for (let y = p.yearRange[0]; y < p.yearRange[1]; y++) years.push(y);
+
+  if (collapsed) {
+    return (
+      <section ref={ref} className="timeline timeline--collapsed" aria-label={t.label}>
+        {p.canPlay && !comparing && (
+          <button type="button" className="play-btn play-btn--small" aria-label={p.playing ? t.pause : t.play} onClick={() => p.onPlay(!p.playing)}>
+            <Icon name={p.playing ? 'pause' : 'play'} size={18} />
+          </button>
+        )}
+        <output className="timeline__value">{p.year ?? `${p.from}-${p.to}`}</output>
+        <button type="button" className="icon-btn icon-btn--bare icon-btn--small" aria-label={lt.expand} title={lt.expand} onClick={() => collapse(false)}>
+          <Icon name="expand" size={16} />
+        </button>
+      </section>
+    );
+  }
 
   return (
     <section ref={ref} className="timeline" aria-label={t.label}>
@@ -60,6 +103,16 @@ export function Timeline(p: Props) {
           <button type="button" className="speed-btn" aria-label={`${t.speed}: ${p.speed}×`} onClick={() => p.onSpeed(nextSpeed)}>
             {p.speed}×
           </button>
+          <label className="timeline__label" htmlFor={fromId}>
+            {lt.from}
+          </label>
+          <select id={fromId} className="timeline__select" value={p.playFrom} onChange={(e) => p.onPlayFrom(Number(e.target.value))} title={lt.fromTitle(p.yearRange[1])}>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -77,20 +130,20 @@ export function Timeline(p: Props) {
 
       {comparing && (
         <div className="timeline__group">
-          <label className="timeline__label" htmlFor={leftId}>
+          <span className="timeline__label" id={leftId}>
             {t.left}
-          </label>
-          <input
-            id={leftId}
-            className="timeline__range"
-            type="range"
+          </span>
+          <JellySlider
+            className="timeline__jelly"
             min={p.yearRange[0]}
             max={p.yearRange[1]}
-            step={1}
             value={p.compare!}
-            onChange={(e) => p.onCompare(Number(e.target.value))}
+            onChange={(y) => p.onCompare(y)}
+            label={t.left}
+            majors={marks.majors}
+            minorStep={marks.minor}
           />
-          <output className="timeline__value" htmlFor={leftId}>
+          <output className="timeline__value">
             {p.compare}
           </output>
         </div>
@@ -98,20 +151,20 @@ export function Timeline(p: Props) {
 
       {p.year !== null && (
         <div className="timeline__group">
-          <label className="timeline__label" htmlFor={yearId}>
+          <span className="timeline__label" id={yearId}>
             {comparing ? t.right : t.year}
-          </label>
-          <input
-            id={yearId}
-            className="timeline__range"
-            type="range"
+          </span>
+          <JellySlider
+            className="timeline__jelly"
             min={p.yearRange[0]}
             max={p.yearRange[1]}
-            step={1}
             value={p.year}
-            onChange={(e) => p.onYear(Number(e.target.value))}
+            onChange={(y) => p.onYear(y)}
+            label={comparing ? t.right : t.year}
+            majors={marks.majors}
+            minorStep={marks.minor}
           />
-          <output className="timeline__value" htmlFor={yearId}>
+          <output className="timeline__value">
             {p.year}
           </output>
           {p.month !== null && (
@@ -131,8 +184,9 @@ export function Timeline(p: Props) {
         </div>
       )}
 
-      <div className="timeline__group timeline__group--period">
-        <span className="timeline__label">{t.period}</span>
+      {p.showPeriod && (
+      <div className="timeline__group timeline__group--period" title={lt.periodTitle}>
+        <span className="timeline__label">{lt.period}</span>
         <div className="range2" style={{ ['--a' as string]: (p.from - min) / span, ['--b' as string]: (p.to - min) / span }}>
           <span className="range2__fill" aria-hidden="true" />
           <input
@@ -160,6 +214,10 @@ export function Timeline(p: Props) {
           {p.from}-{p.to}
         </output>
       </div>
+      )}
+      <button type="button" className="icon-btn icon-btn--bare icon-btn--small timeline__collapse" aria-label={lt.collapse} title={lt.collapse} onClick={() => collapse(true)}>
+        <Icon name="minus" size={16} />
+      </button>
     </section>
   );
 }

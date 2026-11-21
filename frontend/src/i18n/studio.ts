@@ -1,7 +1,7 @@
 import type { Lang } from './strings';
 
 const uk = {
-  rail: { label: 'Інструменти', layers: 'Шари', cases: 'Справи', analysis: 'Аналіз', weather: 'Погода', glossary: 'Глосарій', share: 'Поділитися' },
+  rail: { label: 'Інструменти', layers: 'Шари', fires: 'Пожежі', ukraine: 'Україна', cases: 'Події', analysis: 'Аналіз', weather: 'Погода', glossary: 'Глосарій', share: 'Поділитися' },
   close: 'Закрити',
   layers: {
     title: 'Шари',
@@ -37,9 +37,9 @@ const uk = {
     fillDays: (n: number) => `Пропуски між проходами супутника й під хмарами заповнено знімками до ${n} днів до й після цієї дати.`,
   },
   cases: {
-    title: 'Справи детектива',
-    intro: 'Готові розслідування: камера летить у потрібне місце, вмикає шар і рахує тренди з даних NASA.',
-    open: 'Відкрити справу',
+    title: 'Події',
+    intro: 'Що сталося на Землі і як це видно з космосу: камера летить на місце, вмикає потрібний шар і рахує тренди з даних NASA.',
+    open: 'Відкрити подію',
     sources: 'Джерела',
   },
   analysis: {
@@ -238,7 +238,7 @@ const uk = {
   hints: {
     source: 'Джерело',
     worldview: 'Знімок того дня в NASA Worldview',
-    openCase: 'Відкрити справу',
+    openCase: 'Відкрити подію на глобусі',
     gapFill: (name: string) => `Смуги без даних між обертами супутника заповнено знімком ${name} того ж дня.`,
   },
 };
@@ -254,7 +254,7 @@ function years(n: number): string {
 export type Studio = typeof uk;
 
 const en: Studio = {
-  rail: { label: 'Tools', layers: 'Layers', cases: 'Cases', analysis: 'Analysis', weather: 'Weather', glossary: 'Glossary', share: 'Share' },
+  rail: { label: 'Tools', layers: 'Layers', fires: 'Fires', ukraine: 'Ukraine', cases: 'Events', analysis: 'Analysis', weather: 'Weather', glossary: 'Glossary', share: 'Share' },
   close: 'Close',
   layers: {
     title: 'Layers',
@@ -290,9 +290,9 @@ const en: Studio = {
     fillDays: (n: number) => `Gaps between satellite passes and under clouds are filled from images up to ${n} days before and after this date.`,
   },
   cases: {
-    title: 'Detective cases',
-    intro: 'Ready-made investigations: the camera flies to the place, turns on the layer and computes the trends from NASA data.',
-    open: 'Open case',
+    title: 'Events',
+    intro: 'What happened on Earth and how it looks from space: the camera flies there, turns on the right layer and computes the trends from NASA data.',
+    open: 'Open the event',
     sources: 'Sources',
   },
   analysis: {
@@ -491,7 +491,7 @@ const en: Studio = {
   hints: {
     source: 'Source',
     worldview: 'The image of that day in NASA Worldview',
-    openCase: 'Open the case',
+    openCase: 'Open the event on the globe',
     gapFill: (name: string) => `Strips with no data between the satellite's orbits are filled from the ${name} image of the same day.`,
   },
 };

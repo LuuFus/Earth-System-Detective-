@@ -52,6 +52,8 @@ export type TileSource = {
   dilate?: number;
   /** Daily swath layers: the same layer on nearby days, nearest first, fills the gaps between orbits. */
   fills?: ((z: number, row: number, col: number) => string)[];
+  /** Tiles drawn from another tile grid (Web Mercator): `url` is then only the cache key. */
+  compose?: (z: number, row: number, col: number) => Promise<HTMLCanvasElement | null>;
 };
 
 export function wmtsSource(layer: string, matrixSet: string, format: 'image/png' | 'image/jpeg', time = 'default'): TileSource {
@@ -92,6 +94,78 @@ export function daysSource(main: TileSource, others: TileSource[]): TileSource {
 /** A coarse layer drawn smoothly from one level (see `TileSource.native`). */
 export function nativeSource(main: TileSource, level: number, dilate = 0): TileSource {
   return { ...main, id: `${main.id}@${level}${dilate ? `+${dilate}` : ''}`, native: level, dilate, maxLevel: level };
+}
+
+/**
+ * A Web Mercator XYZ tile map (`{z}/{x}/{y}` in the template) reprojected into the globe's
+ * latitude and longitude tiles, row by row. Used for Safecast's radiation map.
+ */
+export function mercatorSource(id: string, template: string, maxZoom: number, tileSize = 256): TileSource {
+  const xyz = (z: number, x: number, y: number) => template.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
+  const merc = (lat: number) => {
+    const r = (Math.max(-85.05, Math.min(85.05, lat)) * Math.PI) / 180;
+    return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2;
+  };
+  return {
+    id: `merc:${id}`,
+    url: (z, r, c) => `merc:${id}/${z}/${r}/${c}`,
+    // About one Mercator pixel per tile pixel: level z spans 288/2^z degrees in 512 pixels.
+    maxLevel: Math.min(11, maxZoom - 1),
+    transparent: true,
+    progressive: false,
+    async compose(z, r, c) {
+      const span = tileSpan(z);
+      const w = -180 + c * span;
+      const n = 90 - r * span;
+      const e = Math.min(180, w + span);
+      const s = Math.max(-90, n - span);
+      if (s >= 85.05 || n <= -85.05) return null;
+      // The Mercator level whose pixels are about as fine as this tile's.
+      const mz = Math.max(0, Math.min(maxZoom, Math.round(Math.log2((360 * TILE) / (tileSize * span)))));
+      const count = 2 ** mz;
+      const x0 = Math.floor(((w + 180) / 360) * count);
+      const x1 = Math.min(count - 1, Math.floor((((e + 180) / 360) * count) - 1e-9));
+      const y0 = Math.floor(merc(n) * count);
+      const y1 = Math.min(count - 1, Math.floor(merc(s) * count - 1e-9));
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 36) return null;
+      const tiles = new Map<string, Pic | null>();
+      await Promise.all(
+        Array.from({ length: (x1 - x0 + 1) * (y1 - y0 + 1) }, (_, k) => {
+          const x = x0 + (k % (x1 - x0 + 1));
+          const y = y0 + Math.floor(k / (x1 - x0 + 1));
+          return loadTile(xyz(mz, x, y)).then((img) => tiles.set(`${x},${y}`, img));
+        }),
+      );
+      if (![...tiles.values()].some(Boolean)) return null;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = TILE;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      const pxW = (e - w) / TILE;
+      const pxH = (n - s) / TILE;
+      for (let row = 0; row < TILE; row++) {
+        const lat = n - (row + 0.5) * pxH;
+        if (Math.abs(lat) > 85.05) continue;
+        const my = merc(lat) * count;
+        const ty = Math.floor(my);
+        for (let tx = x0; tx <= x1; tx++) {
+          const img = tiles.get(`${tx},${ty}`);
+          if (!img) continue;
+          const size = (img as HTMLImageElement).naturalWidth || img.width || tileSize;
+          const sy = Math.min(size - 1, Math.floor((my - ty) * size));
+          const lonA = Math.max(w, (tx / count) * 360 - 180);
+          const lonB = Math.min(e, ((tx + 1) / count) * 360 - 180);
+          if (lonB <= lonA) continue;
+          const sx0 = (((lonA + 180) / 360) * count - tx) * size;
+          const sx1 = (((lonB + 180) / 360) * count - tx) * size;
+          const dx0 = (lonA - w) / pxW;
+          const dx1 = (lonB - w) / pxW;
+          ctx.drawImage(img, sx0, sy, Math.max(0.5, sx1 - sx0), 1, dx0, row, dx1 - dx0, 1);
+        }
+      }
+      return canvas;
+    },
+  };
 }
 
 /** `low` up to its finest level, then `high` for the levels beyond it (base map: Blue Marble, then Landsat). */
@@ -284,6 +358,7 @@ function tileKey(source: TileSource, z: number, r: number, c: number): string {
 
 function fetchTile(source: TileSource, z: number, r: number, c: number): Promise<Pic | null> {
   const url = source.url(z, r, c);
+  if (source.compose) return remember(url, () => source.compose!(z, r, c), true);
   if (source.fills) return remember(tileKey(source, z, r, c), () => composeDays(url, source.fills!.map((f) => f(z, r, c))), true);
   if (!source.gaps) return loadTile(url);
   const under = source.gaps.under?.(z, r, c) ?? null;
@@ -302,6 +377,40 @@ function dilate(canvas: HTMLCanvasElement, width: number, height: number, radius
   offsets.sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
   ctx.globalCompositeOperation = 'destination-over';
   for (const [dx, dy] of offsets) ctx.drawImage(copy, dx, dy);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/**
+ * Fills small holes in coarse data (the strips between satellite passes) from the pixels around
+ * them: the picture is halved `levels` times and each smaller copy goes under the original, so a
+ * hole takes the average of its neighbours and the edges fade instead of breaking off. Holes wider
+ * than about 2^levels pixels stay open.
+ */
+function fillGaps(canvas: HTMLCanvasElement, width: number, height: number, levels: number): void {
+  const pyramid: HTMLCanvasElement[] = [];
+  let from: HTMLCanvasElement = canvas;
+  let fw = width;
+  let fh = height;
+  for (let i = 0; i < levels; i++) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(fw / 2));
+    c.height = Math.max(1, Math.round(fh / 2));
+    const cx = c.getContext('2d')!;
+    cx.imageSmoothingEnabled = true;
+    cx.imageSmoothingQuality = 'high';
+    cx.drawImage(from, 0, 0, fw, fh, 0, 0, c.width, c.height);
+    // Twice: a half-empty neighbourhood still comes out nearly opaque.
+    cx.drawImage(c, 0, 0);
+    pyramid.push(c);
+    from = c;
+    fw = c.width;
+    fh = c.height;
+  }
+  const ctx = canvas.getContext('2d')!;
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  for (const c of pyramid) ctx.drawImage(c, 0, 0, c.width, c.height, 0, 0, width, height);
   ctx.globalCompositeOperation = 'source-over';
 }
 
@@ -445,8 +554,10 @@ export class TiledLayer {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(back, 0, 0);
       this.global.texture.needsUpdate = true;
-      // A close-up of the old layer must not stay over the new one.
-      if (this.patchShown !== source.id) {
+      // A close-up of the old layer must not stay over the new one; but for points (fires) the
+      // global picture is drawn at a far coarser scale and its dots would show huge, so the old
+      // close-up stays until the new one is complete.
+      if (this.patchShown !== source.id && (source.progressive || !this.patchKey)) {
         this.bounds.set(0, 0, 0, 0);
         this.patchShown = '';
       }
@@ -484,6 +595,7 @@ export class TiledLayer {
     const width = Math.round((360 / s) * TILE);
     const height = Math.round((180 / s) * TILE);
     if (source.dilate) dilate(small, width, height, source.dilate);
+    fillGaps(small, width, height, 2 + z);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
@@ -546,6 +658,24 @@ export class TiledLayer {
       range = this.range(box, z);
     }
     return z > this.globalLevel ? { z, range } : null;
+  }
+
+  /** The colour drawn at a point (UV of the globe), from the close-up where it covers the point. */
+  sample(u: number, v: number): [number, number, number, number] | null {
+    const read = (canvas: HTMLCanvasElement, x: number, y: number) => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx || x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return null;
+      const d = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+      return [d[0], d[1], d[2], d[3]] as [number, number, number, number];
+    };
+    const b = this.bounds;
+    if (b.z > b.x && u >= b.x && u <= b.z && v >= b.y && v <= b.w) {
+      const px = ((u - b.x) / (b.z - b.x)) * this.patch.canvas.width;
+      const py = (1 - (v - b.y) / (b.w - b.y)) * this.patch.canvas.height;
+      const hit = read(this.patch.canvas, px, py);
+      if (hit && hit[3] > 0) return hit;
+    }
+    return read(this.global.canvas, u * this.global.canvas.width, (1 - v) * this.global.canvas.height);
   }
 
   /** Close-up for the visible box, at the level that matches screen pixels. */
@@ -705,7 +835,35 @@ export class TiledLayer {
     const jobs: Promise<unknown>[] = [];
     const level = source.native ?? this.globalLevel;
     const s = tileSpan(level);
-    if (!source.area) {
+    if (source.area) {
+      // Point layers: the global picture in its pieces, and the close-up pieces for the view.
+      const lonPerPx = 360 / this.global.canvas.width;
+      const latPerPx = 180 / this.global.canvas.height;
+      let shard = 0;
+      for (let y = 0; y < this.global.canvas.height; y += AREA_CHUNK) {
+        for (let x = 0; x < this.global.canvas.width; x += AREA_CHUNK) {
+          const w = Math.min(AREA_CHUNK, this.global.canvas.width - x);
+          const h = Math.min(AREA_CHUNK, this.global.canvas.height - y);
+          jobs.push(loadTile(source.area({ s: 90 - (y + h) * latPerPx, w: -180 + x * lonPerPx, n: 90 - y * latPerPx, e: -180 + (x + w) * lonPerPx }, w, h, shard++)));
+        }
+      }
+      const plan = this.patchFor(source, this.lastBox, this.lastPixels);
+      if (plan) {
+        const ps = tileSpan(plan.z);
+        const span = 2 * ps;
+        for (let R = Math.floor(plan.range.r0 / 2); R <= Math.floor(plan.range.r1 / 2); R++) {
+          for (let C = Math.floor(plan.range.c0 / 2); C <= Math.floor(plan.range.c1 / 2); C++) {
+            const w = -180 + C * span;
+            const n = 90 - R * span;
+            const e = Math.min(180, w + span);
+            const south = Math.max(-90, n - span);
+            const wPx = Math.round((2 * TILE * (e - w)) / span);
+            const hPx = Math.round((2 * TILE * (n - south)) / span);
+            if (wPx > 0 && hPx > 0) jobs.push(loadTile(source.area({ s: south, w, n, e }, wPx, hPx, R + C)));
+          }
+        }
+      }
+    } else {
       for (let r = 0; r < Math.ceil(180 / s); r++) for (let c = 0; c < Math.ceil(360 / s); c++) jobs.push(fetchTile(source, level, r, c));
       const plan = this.patchFor(source, this.lastBox, this.lastPixels);
       if (plan) {

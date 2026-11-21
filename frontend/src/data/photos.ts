@@ -1,0 +1,133 @@
+// Photos for events (not satellite images), from Wikimedia Commons under free licences. Each is
+// loaded from Commons at the size the card needs and credited with its author and licence.
+
+import type { Text } from './variables';
+
+export type Photo = { file: string; author: string; license: string; caption: Text };
+
+/** A Commons image at about `width` pixels wide. */
+export const photoUrl = (p: Photo, width = 640) => `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(p.file)}?width=${width}`;
+export const photoPage = (p: Photo) => `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(p.file.replace(/ /g, '_'))}`;
+
+export const photos = {
+  chornobyl: {
+    file: 'Chornobyl forest fire, 2020.jpg',
+    author: 'ДАЗВ (State Agency of Ukraine on Exclusion Zone Management)',
+    license: 'CC BY 4.0',
+    caption: { uk: 'Пожежа в зоні відчуження, квітень 2020: знімок із літака', en: 'Fire in the Exclusion Zone, April 2020, seen from a plane' },
+  },
+  noBurn: {
+    file: 'Agriculture in India tractor farming Punjab preparing field for a wheat crop without burning previous crop stalk.jpg',
+    author: 'CIAT',
+    license: 'CC BY-SA 2.0',
+    caption: { uk: 'Пенджаб, Індія: поле готують до сівби без спалювання стерні', en: 'Punjab, India: a field prepared for sowing without burning the stubble' },
+  },
+  kherson: {
+    file: 'Flooded Kherson, 2023-06-07 (04).jpg',
+    author: 'Дмитро Завтонов / АрміяInform',
+    license: 'CC BY 4.0',
+    caption: { uk: 'Затоплений Херсон наступного дня після руйнування греблі, 7 червня 2023', en: 'Flooded Kherson the day after the dam was destroyed, 7 June 2023' },
+  },
+  aral: {
+    file: 'Moynaq, Aral Sea (6226807306).jpg',
+    author: 'Arian Zwegers',
+    license: 'CC BY 2.0',
+    caption: { uk: 'Кораблі на колишньому дні Аралу біля Муйнака', en: 'Ships on the former bed of the Aral Sea at Moynaq' },
+  },
+  chad: {
+    file: 'Lake chad shore (detilt).jpg',
+    author: 'Wikimedia Commons contributors',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Берег озера Чад', en: 'The shore of Lake Chad' },
+  },
+  sahel: {
+    file: 'Niger, Guesselbodi (8), view of village.jpg',
+    author: 'NigerTZai',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Село Гесельбоді, Нігер, наприкінці сухого сезону', en: 'Guesselbodi village, Niger, at the end of the dry season' },
+  },
+  pinatubo: {
+    file: 'Eruption of Mount Pinatubo, June 15, 1991 (original resolution).jpg',
+    author: 'NOAA/NGDC, R. Lapointe, U.S. Air Force',
+    license: 'Public domain',
+    caption: { uk: 'Виверження Пінатубо 15 червня 1991, вигляд з авіабази Кларк', en: 'Pinatubo erupting on 15 June 1991, seen from Clark Air Base' },
+  },
+  forest: {
+    file: 'Floresta Nacional do Iquiri Erick Caldas Xavier (5).jpg',
+    author: 'Erick Caldas Xavier',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Вирубаний і випалений ліс в Амазонії (штат Амазонас)', en: 'Cleared and burned forest in the Amazon (Amazonas state)' },
+  },
+  smokeNy: {
+    file: 'Quebec Canada Wildfire Smoke Consumes New Jersey and New York City June 7 2023 - 52959378738.jpg',
+    author: 'Anthony Quintano',
+    license: 'CC BY 2.0',
+    caption: { uk: 'Дим канадських пожеж над Нью-Йорком, 7 червня 2023', en: 'Smoke from Canada’s fires over New York, 7 June 2023' },
+  },
+  meltPond: {
+    file: 'Summer Arctic Melt Pond-SHEBA.JPG',
+    author: 'Donald K. Perovich',
+    license: 'Public domain',
+    caption: { uk: 'Дослідники на талій калюжі на кризі Північного Льодовитого океану', en: 'Researchers at a melt pond on Arctic sea ice' },
+  },
+  columbia: {
+    file: 'Tellurometer from National Geodetic Survey at Columbia Glacier.jpg',
+    author: 'NOAA National Geodetic Survey',
+    license: 'Public domain',
+    caption: { uk: 'Геодезисти NOAA вимірюють льодовик Колумбія', en: 'NOAA surveyors measuring Columbia Glacier' },
+  },
+  pakistan: {
+    file: 'Flood in Pakistan 2022.png',
+    author: 'Ali Hyder Junejo',
+    license: 'CC BY 2.0',
+    caption: { uk: 'Затоплені міста провінції Сінд, 2022: знімок із повітря', en: 'Flooded towns of Sindh, 2022, from the air' },
+  },
+  coral: {
+    file: 'Colorful Coral Bleaching Event.jpg',
+    author: 'Ryan Goehrung',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Корали під тепловим стресом яскравішають перед тим, як побіліти', en: 'Corals under heat stress turn bright before they bleach' },
+  },
+  kyivDark: {
+    file: 'Kyiv during the blackout caused by Russian missile attacks, November 2022.jpg',
+    author: 'Bektour',
+    license: 'CC BY 4.0',
+    caption: { uk: 'Велика Васильківська в Києві без світла, 25 листопада 2022', en: 'Velyka Vasylkivska Street in Kyiv without power, 25 November 2022' },
+  },
+  halley: {
+    file: 'Halley VI Antarctic Research Station - view from North East.jpg',
+    author: 'Hugh Broughton Architects',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Антарктична станція Галлі, де відкрили озонову діру', en: 'Halley station in Antarctica, where the ozone hole was discovered' },
+  },
+  lockdown: {
+    file: 'Italy Lockdown - IMG 6473 (49728530411).jpg',
+    author: 'Nicola, Fiumicino (Rome)',
+    license: 'CC BY 2.0',
+    caption: { uk: 'Порожня вулиця в Італії під час карантину, 2020', en: 'An empty street in Italy during the lockdown, 2020' },
+  },
+  kyiv: {
+    file: 'Панорама на Днепр и Подол - Panorama of the Dnieper and Podol (9644947002).jpg',
+    author: 'spoilt.exile',
+    license: 'CC BY-SA 2.0',
+    caption: { uk: 'Дніпро й Поділ, Київ', en: 'The Dnipro and Podil, Kyiv' },
+  },
+  odesa: {
+    file: 'Потьомкінські сходи 11.jpg',
+    author: 'Oleksandr Malyon',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Потьомкінські сходи, Одеса', en: 'The Potemkin Stairs, Odesa' },
+  },
+  fields: {
+    file: 'Шманьківці, Фоторобота Максима Огородника «Двояка сутність лану».jpg',
+    author: 'Максим Огородник',
+    license: 'CC BY-SA 4.0',
+    caption: { uk: 'Поле біля Шманьківців, Тернопільщина', en: 'A field near Shmankivtsi, Ternopil region' },
+  },
+  niagara: {
+    file: 'Niagara Falls Ontario Canada aerial view.jpg',
+    author: 'Salwa Farwaneh',
+    license: 'CC0',
+    caption: { uk: 'Ніагарський водоспад на кордоні США й Канади', en: 'Niagara Falls on the US–Canada border' },
+  },
+} satisfies Record<string, Photo>;

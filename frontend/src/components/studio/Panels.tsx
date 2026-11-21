@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { entryText, loadColorMap, type ColorMap } from '../../data/colormaps';
+import { useLiveText } from '../../i18n/live';
 import { cases, type Case, type GistempMode } from '../../data/cases';
 import { RAMP_CSS } from '../../data/gistemp';
 import { glossary } from '../../data/glossary';
@@ -9,7 +11,9 @@ import { useI18n } from '../../i18n/I18n';
 import { numberFormat } from '../../i18n/format';
 import { useStudio } from '../../i18n/useStudio';
 import type { LabelLayers } from '../../state/explore';
-import { Icon } from './Icon';
+import { HINT_KINDS, type HintKind } from '../../data/hints';
+import { photos, photoUrl, type Photo } from '../../data/photos';
+import { Icon, type IconName } from './Icon';
 
 export function Flyout({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const s = useStudio();
@@ -51,7 +55,6 @@ type LayersProps = {
 export function LayersPanel(p: LayersProps) {
   const { lang } = useI18n();
   const s = useStudio();
-  const [about, setAbout] = useState<VariableId | null>(null);
   const v = p.variable ? variableById[p.variable] : null;
 
   return (
@@ -78,54 +81,29 @@ export function LayersPanel(p: LayersProps) {
         </div>
       )}
 
-      <label className="switch">
-        <input type="checkbox" checked={p.war} onChange={(e) => p.onWar(e.target.checked)} />
-        <span className="switch__track" aria-hidden="true" />
-        <span className="switch__text">{s.layers.war}</span>
-      </label>
-      {p.war && <WarLegend data={p.warData} status={p.warStatus} />}
-
-      <fieldset className="vars">
-        <legend className="visually-hidden">{s.layers.title}</legend>
-        <label className="vars__item">
-          <input type="radio" name="variable" checked={p.variable === null} onChange={() => p.onVariable(null)} />
-          <span className="vars__name">{s.layers.none}</span>
-          <span className="vars__badge">{s.layers.noneNote}</span>
-        </label>
-        {groups.map((g) => (
-          <div key={g.id} className="vars__group">
-            <p className="vars__group-name">{g.name[lang]}</p>
-            {variables
-              .filter((x) => x.group === g.id)
-              .map((x) => (
-                <div key={x.id} className="vars__row">
-                  <label className="vars__item">
-                    <input type="radio" name="variable" checked={p.variable === x.id} onChange={() => p.onVariable(x.id)} />
-                    <span className="vars__name">{x.name[lang]}</span>
-                    <span className={`vars__badge${x.series ? ' vars__badge--numbers' : ''}`}>{x.series ? s.layers.numbers : s.layers.mapOnly}</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="icon-btn icon-btn--bare icon-btn--small"
-                    aria-expanded={about === x.id}
-                    aria-label={`${s.layers.about} ${x.name[lang]}`}
-                    onClick={() => setAbout(about === x.id ? null : x.id)}
-                  >
-                    <Icon name="info" size={16} />
-                  </button>
-                  {about === x.id && (
-                    <p className="vars__about">
-                      {x.definition[lang]}{' '}
-                      <a href={x.sourceUrl} target="_blank" rel="noreferrer">
-                        {x.source[lang]}
-                      </a>
-                    </p>
-                  )}
-                </div>
-              ))}
+      {v && (
+        <section className="layer-now">
+          <div className="layer-now__head">
+            <span className="layer-now__thumb">
+              <LayerThumb id={v.id} />
+            </span>
+            <div>
+              <p className="layer-now__kicker">{s.activeLayer}</p>
+              <h3 className="layer-now__name">{v.name[lang]}</h3>
+            </div>
+            <button type="button" className="chip-btn" onClick={() => p.onVariable(null)}>
+              <Icon name="close" size={14} />
+              {s.exitLayer}
+            </button>
           </div>
-        ))}
-      </fieldset>
+          <p className="note">
+            {v.definition[lang]}{' '}
+            <a href={v.sourceUrl} target="_blank" rel="noreferrer">
+              {v.source[lang]}
+            </a>
+          </p>
+        </section>
+      )}
 
       {p.variable === 'gistemp' && (
         <fieldset className="seg">
@@ -141,7 +119,55 @@ export function LayersPanel(p: LayersProps) {
 
       {v && <Legend {...p} />}
       {v?.pendingNumbers && <p className="note">{s.layers.pending}</p>}
+
+      {groups.map((g) => (
+        <section key={g.id} className="shelf" aria-label={g.name[lang]}>
+          <h3 className="shelf__title">{g.name[lang]}</h3>
+          <div className="shelf__row">
+            {variables
+              .filter((x) => x.group === g.id)
+              .map((x) => (
+                <button
+                  key={x.id}
+                  type="button"
+                  className="layer-card"
+                  aria-pressed={p.variable === x.id}
+                  title={x.definition[lang]}
+                  onClick={() => p.onVariable(p.variable === x.id ? null : x.id)}
+                >
+                  <span className="layer-card__img">
+                    <LayerThumb id={x.id} />
+                    {x.series && <span className="layer-card__badge">{s.layers.numbers}</span>}
+                  </span>
+                  <span className="layer-card__name">{x.name[lang]}</span>
+                </button>
+              ))}
+          </div>
+        </section>
+      ))}
     </>
+  );
+}
+
+const WMS = 'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&STYLES=&CRS=EPSG:4326&BBOX=-60,-180,85,180&WIDTH=256&HEIGHT=104';
+
+/** A small world picture of a layer, drawn by NASA GIBS over the relief map. */
+export function LayerThumb({ id }: { id: VariableId }) {
+  const v = variableById[id];
+  const base = `${WMS}&LAYERS=BlueMarble_ShadedRelief_Bathymetry&FORMAT=image/jpeg`;
+  if (!v.imagery) {
+    // GISTEMP: its own colour ramp.
+    return <span className="layer-thumb layer-thumb--ramp" style={{ background: `linear-gradient(120deg, ${RAMP_CSS.join(', ')})` }} />;
+  }
+  const img = v.imagery;
+  const year = Number(img.last.slice(0, 4)) - (img.static ? 0 : 1);
+  const date = img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, img.month);
+  const layer = `${WMS}&LAYERS=${img.layer}&FORMAT=image/png&TRANSPARENT=TRUE${img.static ? '' : `&TIME=${date}`}`;
+  return (
+    <span className="layer-thumb">
+      {v.id !== 'truecolor' && <img src={base} alt="" loading="lazy" />}
+      <img src={layer} alt="" loading="lazy" />
+    </span>
   );
 }
 
@@ -231,8 +257,8 @@ export function Legend(p: Pick<LayersProps, 'variable' | 'mode' | 'year' | 'mont
           <span className="legend__dot" aria-hidden="true" />
           {s.layers.legendFires}
         </p>
-      ) : v.id !== 'truecolor' && broken !== url && (
-        <img className="legend__img" src={url} alt={`${s.layers.legendOfficial}: ${v.name[lang]}`} loading="lazy" onError={() => setBroken(url)} />
+      ) : (
+        v.id !== 'truecolor' && <ColormapLegend id={v.id} fallback={broken !== url ? <img className="legend__img" src={url} alt={`${s.layers.legendOfficial}: ${v.name[lang]}`} loading="lazy" onError={() => setBroken(url)} /> : null} />
       )}
       <p className="legend__src">
         <a href={v.sourceUrl} target="_blank" rel="noreferrer">
@@ -245,6 +271,20 @@ export function Legend(p: Pick<LayersProps, 'variable' | 'mode' | 'year' | 'mont
 
 // ---------- Cases ----------
 
+/** Each event's picture and kind, for finding it at a glance. */
+const CASE_LOOK: Record<string, { photo?: Photo; kind: HintKind }> = {
+  'usa-canada': { photo: photos.niagara, kind: 'heat' },
+  'kyiv-odesa': { photo: photos.odesa, kind: 'heat' },
+  arctic: { photo: photos.meltPond, kind: 'ice' },
+  warminghole: { kind: 'water' },
+  aral: { photo: photos.aral, kind: 'drought' },
+  kakhovka: { photo: photos.kherson, kind: 'war' },
+  ozone: { photo: photos.halley, kind: 'ozone' },
+  sahel: { photo: photos.sahel, kind: 'drought' },
+  ukraine: { photo: photos.fields, kind: 'heat' },
+  'ukraine-war': { photo: photos.kyivDark, kind: 'war' },
+};
+
 export function CasesPanel({ activeId, onOpen }: { activeId: string | null; onOpen: (c: Case) => void }) {
   const { lang } = useI18n();
   const s = useStudio();
@@ -252,14 +292,26 @@ export function CasesPanel({ activeId, onOpen }: { activeId: string | null; onOp
     <>
       <p className="note">{s.cases.intro}</p>
       <ol className="cases">
-        {cases.map((c) => (
-          <li key={c.id}>
-            <button type="button" className="case-card" aria-current={activeId === c.id ? 'true' : undefined} onClick={() => onOpen(c)}>
-              <span className="case-card__title">{c.title[lang]}</span>
-              <span className="case-card__text">{c.story[lang]}</span>
-            </button>
-          </li>
-        ))}
+        {cases.map((c) => {
+          const look = CASE_LOOK[c.id] ?? { kind: 'heat' as HintKind };
+          const k = HINT_KINDS[look.kind];
+          return (
+            <li key={c.id}>
+              <button type="button" className="case-card" aria-current={activeId === c.id ? 'true' : undefined} onClick={() => onOpen(c)}>
+                <span className="case-card__img" style={{ ['--hint' as string]: k.color }}>
+                  {look.photo ? <img src={photoUrl(look.photo, 320)} alt="" loading="lazy" /> : <Icon name={k.icon as IconName} size={34} />}
+                  <span className="case-card__kind">
+                    <Icon name={k.icon as IconName} size={14} />
+                  </span>
+                </span>
+                <span className="case-card__words">
+                  <span className="case-card__title">{c.title[lang]}</span>
+                  <span className="case-card__text">{c.story[lang]}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ol>
     </>
   );
@@ -311,5 +363,55 @@ export function SharePanel({ url }: { url: string }) {
         </p>
       )}
     </>
+  );
+}
+
+/** The layer's own colour scale from NASA GIBS, with values in plain units, or its classes. */
+function ColormapLegend({ id, fallback }: { id: VariableId; fallback: ReactNode }) {
+  const { lang } = useI18n();
+  const t = useLiveText().layerScale;
+  const [map, setMap] = useState<ColorMap | null | 'loading'>('loading');
+  useEffect(() => {
+    let cancelled = false;
+    setMap('loading');
+    void loadColorMap(id).then((m) => !cancelled && setMap(m));
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+  if (map === 'loading') return null;
+  if (!map) return <>{fallback}</>;
+  if (!map.numeric) {
+    const seen = new Set<string>();
+    const classes = map.entries.filter((e) => e.label && !seen.has(e.label) && seen.add(e.label));
+    return (
+      <div className="cm-legend">
+        <ul className="cm-legend__classes">
+          {classes.map((e) => (
+            <li key={e.label}>
+              <i style={{ background: `rgb(${e.r},${e.g},${e.b})` }} />
+              {entryText(id, e, lang)}
+            </li>
+          ))}
+        </ul>
+        <p className="note">{t.hover}</p>
+      </div>
+    );
+  }
+  const n = map.entries.length;
+  const stops = Array.from({ length: 24 }, (_, i) => map.entries[Math.round((i / 23) * (n - 1))]);
+  const ticks = [0, 0.5, 1].map((f) => map.entries[Math.round(f * (n - 1))]);
+  return (
+    <div className="cm-legend">
+      <span className="cm-legend__bar" style={{ background: `linear-gradient(90deg, ${stops.map((e) => `rgb(${e.r},${e.g},${e.b})`).join(', ')})` }} aria-hidden="true" />
+      <span className="cm-legend__ticks">
+        {ticks.map((e, i) => (
+          <span key={i}>{entryText(id, e, lang).replace(/^≈ /, '')}</span>
+        ))}
+      </span>
+      <p className="note">
+        {t.lowHigh} {t.hover}
+      </p>
+    </div>
   );
 }

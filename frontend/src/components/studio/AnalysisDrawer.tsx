@@ -11,7 +11,9 @@ import { useI18n } from '../../i18n/I18n';
 import { digitsFor, formatP, numberFormat, regionName } from '../../i18n/format';
 import { useStudio } from '../../i18n/useStudio';
 import type { ChartView, PickMode, Slot } from '../../state/explore';
+import { useLiveText } from '../../i18n/live';
 import { Chart, type ChartHandle, type ChartMark } from '../Chart';
+import { StatCard, type StatRange } from '../ui/StatCard';
 import { SeasonChart } from '../SeasonChart';
 import { Icon } from './Icon';
 import { Methods } from './Methods';
@@ -329,6 +331,7 @@ export function AnalysisDrawer(p: Props) {
             {p.analysis.status === 'ready' && (
               <>
                 {p.analysis.fallback && <p className="note note--source">{p.analysis.fallback[lang]}</p>}
+                <AnalysisStat results={annual} from={p.from} to={p.to} unit={variable.unit[lang]} name={variable.name[lang]} />
                 <Summary results={results} from={p.from} to={p.to} unit={unit} variable={p.chartVariable} />
                 <Levels results={results} from={p.from} to={p.to} unit={unit} />
                 <Tiles results={annual} from={p.from} to={p.to} unit={variable.unit[lang]} />
@@ -573,6 +576,44 @@ function Verdict({
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * Region A at a glance (Design Bookmark's Stat Card): the latest yearly value, the change along
+ * the Theil-Sen trend, and the curve, for the last 10 or 30 years or the whole period.
+ */
+function AnalysisStat({ results, from, to, unit, name }: { results: AnalysisState['results']; from: number; to: number; unit: string; name: string }) {
+  const { lang } = useI18n();
+  const t = useLiveText().stat;
+  const [range, setRange] = useState('all');
+  const a = results.find((r) => r.slot === 'A');
+  const all = (a?.points ?? []).filter((q) => Number.isFinite(q.y));
+  if (!a || all.length < 4) return null;
+  const last = all[all.length - 1];
+  const make = (id: string, label: string, years: number | null): StatRange | null => {
+    const pts = years === null ? all : all.filter((q) => q.x > last.x - years);
+    if (pts.length < 4 || (years !== null && years >= to - from + 1)) return null;
+    const stats = trendStats(pts);
+    const delta = stats ? stats.sen * (pts[pts.length - 1].x - pts[0].x) : null;
+    return { id, label, value: last.y, delta, points: pts.map((q) => q.y) };
+  };
+  const ranges = [make('r10', t.ranges.r10, 10), make('r30', t.ranges.r30, 30), make('all', `${t.ranges.all} ${from}-${to}`, null)].filter((r): r is StatRange => r !== null);
+  const values = all.map((q) => Math.abs(q.y));
+  const digits = Math.min(2, digitsFor(Math.max(...values) || 0.1));
+  const plain = numberFormat(lang, digits, false);
+  const signed = numberFormat(lang, Math.max(1, digits));
+  return (
+    <StatCard
+      label={`${name} · ${regionName(a.region, lang)}`}
+      ranges={ranges}
+      active={ranges.some((r) => r.id === range) ? range : ranges[ranges.length - 1].id}
+      onRange={setRange}
+      format={(v) => `${plain(v)} ${unit}`}
+      formatDelta={(v) => `${signed(v)} ${unit}`}
+      tone={(d) => (d === null || Math.abs(d) < 1e-9 ? 'flat' : d > 0 ? 'up' : 'down')}
+      caption={t.caption(last.x)}
+    />
   );
 }
 

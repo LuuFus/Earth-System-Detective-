@@ -14,13 +14,32 @@ much, and whether the change is statistically significant.
 
 ![Home page: sunrise over Earth from the ISS](docs/screenshots/home.jpg)
 
+**Made by:** IT Detectives (Maksym Semenov and Anastasiia Chupyra).
+
+## Recent additions (November 2026)
+
+- A Google Earth-style redesign with spring animations, a relief map style and the real Sun (night
+  side with city lights).
+- **Fires**: every fire of the last 48 hours (NASA FIRMS: VIIRS and MODIS) and big fires replayed day
+  by day.
+- **Ukraine**: air quality, Safecast radiation, the DeepState front line with its history, occupied
+  communities and a before/after blackout comparison, on the globe and on a 2D map (`/map?mode=ukraine`).
+- **Weather** (`/map?mode=weather`): wind lines, gusts, temperature, rain and snow, cloud, radar and a
+  72-hour NOAA GFS forecast that plays smoothly.
+- **Air quality worldwide** from WAQI (with a free token), SaveEcoBot and Sensor.Community, with the
+  AQI in each bubble and a card with the place and what the data show nearby.
+- 20+ layers on shelves, a legend for each and the value under the pointer; events with photos and
+  "what happened / why / who or what caused it / what can be done".
+- Home page section "About": what the site is, why, what it can do, and who made it.
+
 ## What is here
 
 ### Home page
 
-One screen, no scrolling: NASA footage (sunrise over Earth from the ISS, Earth
-by day and by night, the PACE satellite being built and launched), the headline
-"For the Benefit of All" and a button into the 3D Earth. Ukrainian and English.
+First screen: NASA footage (sunrise over Earth from the ISS, Earth by day and by night, the PACE
+satellite being built and launched), the headline and buttons into the 3D Earth, weather, fires and
+Ukraine. Below it, "About": what the site is, why, eight features with links, how the data update,
+who it is for and the authors. Ukrainian and English.
 
 ### 3D Earth (`/explore`): the "Studio"
 
@@ -127,15 +146,29 @@ npm install
 npm run dev
 ```
 
-The browser opens by itself. Code, data and how to refresh GISTEMP are in
+The browser opens by itself. While `npm run dev` runs, the server refreshes fires and air every hour
+(and the GFS forecast once it is over 6 hours old) by running `data-pipeline/build_live.py` (Python
+with numpy).
+
+**WAQI air quality.** Get a free token at https://aqicn.org/data-platform/token/ and put it in
+`frontend/.env.local` (kept out of git):
+
+```bash
+VITE_WAQI_TOKEN=your_token
+```
+
+For the GitHub Pages site, add the same token as the repository secret `WAQI_TOKEN`. Without a
+token the site uses SaveEcoBot and Sensor.Community.
+
+Code, data and how to refresh GISTEMP are in
 [`frontend/README.en.md`](frontend/README.en.md); colours, type and components in
 [`DESIGN.md`](DESIGN.md).
 
 ## Deployment
 
-Every push to `main` runs GitHub Actions
-([`.github/workflows/pages.yml`](.github/workflows/pages.yml)): the site is built
-and published to the `gh-pages` branch, which GitHub Pages serves.
+Every push to `main`, and an hourly schedule, run GitHub Actions
+([`.github/workflows/pages.yml`](.github/workflows/pages.yml)): fresh fires, air and forecast are
+collected, the site is built and published to the `gh-pages` branch, which GitHub Pages serves.
 
 ## Repository layout
 
@@ -149,7 +182,10 @@ and published to the `gh-pages` branch, which GitHub Pages serves.
 ## Data sources
 
 NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI,
-MODIS, NASA FIRMS, NASA Image and Video Library, NASA JSC Crew Earth
-Observations; Natural Earth maps (public domain); Open-Meteo forecasts; NOAA
-Storm Prediction Center tornado outlooks. This is not an official NASA website, and NASA does not
+MODIS, NASA FIRMS, NASA Black Marble, NASA Image and Video Library, NASA JSC Crew Earth
+Observations; NOAA GFS; RainViewer; Natural Earth maps (public domain) and OpenStreetMap (ODbL);
+Open-Meteo forecasts; NOAA Storm Prediction Center tornado outlooks; DeepState; SaveEcoBot;
+Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0); Copernicus CAMS via Open-Meteo;
+photos from Wikimedia Commons. Made by IT Detectives (Maksym Semenov and Anastasiia Chupyra), built
+with Claude (Anthropic). This is not an official NASA website, and NASA does not
 endorse the project.

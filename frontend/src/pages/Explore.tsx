@@ -1,11 +1,28 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { countryRegion, regionBox, regionCentre, type Region } from '../analysis/series';
 import { CountrySearch } from '../components/CountrySearch';
-import { Globe, type GlobeApi, type GlobeCompare, type GlobeHint, type GlobeMarker, type GlobeOutline, type GlobePoint, type GlobeVector, type GlobeView } from '../components/Globe';
+import {
+  Globe,
+  type GlobeApi,
+  type GlobeCompare,
+  type GlobeField,
+  type GlobeHint,
+  type GlobeMarker,
+  type GlobeOutline,
+  type GlobePoint,
+  type GlobePoints,
+  type GlobeStations,
+  type GlobeVector,
+  type GlobeView,
+  type GlobeWind,
+} from '../components/Globe';
 import { daysSource, gapFilledSource, nativeSource, wmsSource, wmtsSource } from '../components/globe/tiles';
 import { AnalysisDrawer } from '../components/studio/AnalysisDrawer';
-import { HintCard } from '../components/studio/HintCard';
+import { HintCard, HintPreview } from '../components/studio/HintCard';
 import { Icon } from '../components/studio/Icon';
+import { AirCard } from '../components/studio/AirCard';
+import { CursorInfo } from '../components/studio/CursorInfo';
+import { FiresPanel, MapControls, MapStyle, StoryPlayer, UkrainePanel, WeatherGlobeControls } from '../components/studio/LivePanels';
 import { CasesPanel, Flyout, GlossaryPanel, LayersPanel, SharePanel } from '../components/studio/Panels';
 import { Rail } from '../components/studio/Rail';
 import { Timeline } from '../components/studio/Timeline';
@@ -15,25 +32,50 @@ import { cases, type Case } from '../data/cases';
 import type { Country } from '../data/countries';
 import { eventsFor } from '../data/events';
 import { countryAt, countryName, loadBorders, loadCountries, loadLabels, type GeoBorders, type GeoCountry, type GeoLabels } from '../data/geo';
-import { hintById, hints } from '../data/hints';
+import { HINT_KINDS, hintById, hints } from '../data/hints';
 import { cellIndex } from '../data/gistemp';
-import { imageryDate, imageryYears, nearbyDates, variableById } from '../data/variables';
+import { imageryDate, imageryYears, nearbyDates, variableById, type VariableId } from '../data/variables';
+import { isOld, mergeAir, type AirStation } from '../data/air';
+import { useWaqi, WAQI_TOKEN } from '../data/waqi';
+import { entryText, levelWord, loadColorMap, lookup, type ColorMap } from '../data/colormaps';
+import { loadAir, loadFires, loadFrame, nearestFrame, paintField, useLiveManifest, type AirPoint, type LiveFires, type WeatherFrame } from '../data/live';
+import { PointIndex } from '../data/nearby';
+import {
+  AQI_COLORS,
+  aqiBand,
+  dailyVersions,
+  drawFront,
+  FRONT_BOX,
+  loadAqi,
+  loadFront,
+  loadFrontHistory,
+  loadStories,
+  loadStory,
+  type AqiStation,
+  type FireStory,
+  type FrontArea,
+  type FrontVersion,
+} from '../data/ukraine';
 import { drawWar, loadWar, WAR_BOX, type WarData } from '../data/war';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useClimateLayer } from '../hooks/useClimateLayer';
-import { usePointClimate } from '../hooks/usePointClimate';
 import { useI18n } from '../i18n/I18n';
-import { formatPoint, numberFormat, regionName } from '../i18n/format';
+import { numberFormat, regionName } from '../i18n/format';
+import { useLiveText } from '../i18n/live';
 import { useStudio } from '../i18n/useStudio';
-import { fromQuery, initialState, reducer, toQuery, type ExploreState, type Slot } from '../state/explore';
+import { fromQuery, initialState, reducer, toQuery, type ExploreState, type Light, type Slot } from '../state/explore';
 
 const GISTEMP_YEARS: [number, number] = [1880, 2025];
+/** Blackout comparison: clear nights over all of Ukraine before the invasion (2021) and during the power cuts (2022). */
+const BLACKOUT_DATES: Record<number, string> = { 2021: '2021-10-03', 2022: '2022-11-25' };
+const UKRAINE_VIEW = { lat: 48.6, lon: 31.4, distance: 1.55 };
 const WMS_LEVEL: Record<string, number> = { '2km': 5, '1km': 6, '500m': 7, '250m': 8 };
 
 /** The 3D Earth studio: globe, tool rail, panels, analysis drawer and timeline. */
 export default function Explore() {
   const { lang, t } = useI18n();
   const s = useStudio();
+  const liveText = useLiveText();
   const globe = useRef<GlobeApi | null>(null);
   const initial = useMemo(() => fromQuery(window.location.search), []);
   const [state, dispatch] = useReducer(reducer, initialState, (base): ExploreState => {
@@ -42,6 +84,10 @@ export default function Explore() {
   });
   const [view, setView] = useState<GlobeView | null>(initial.view);
   const [hover, setHover] = useState<GlobePoint | null>(null);
+  const onHover = useCallback((p: GlobePoint | null) => {
+    setHover(p);
+    if (p) setPointerSeen(true);
+  }, []);
   const [loading, setLoading] = useState(false);
   const [missedCountry, setMissedCountry] = useState(false);
 
@@ -65,7 +111,9 @@ export default function Explore() {
   // Countries picked as A or B: their outlines on the globe, and their real bounding boxes when
   // they came from a shared link.
   const [countryShapes, setCountryShapes] = useState<Map<string, GeoCountry> | null>(null);
-  const needsCountries = state.regionA?.kind === 'country' || state.regionB?.kind === 'country' || state.pickMode === 'country';
+  // Ukraine is outlined whenever borders or any Ukraine layer is on.
+  const showUkraine = state.borders || state.aqi || state.front || state.war || state.blackout || state.radiation || state.panel === 'ukraine';
+  const needsCountries = state.regionA?.kind === 'country' || state.regionB?.kind === 'country' || state.pickMode === 'country' || showUkraine;
   useEffect(() => {
     if (!needsCountries || countryShapes) return;
     loadCountries()
@@ -90,8 +138,10 @@ export default function Explore() {
       const c = r?.kind === 'country' ? countryShapes.get(r.code) : null;
       if (c) out.push({ id, rings: c.rings });
     }
+    const ua = showUkraine ? countryShapes.get('UA') : null;
+    if (ua && !out.some((o) => o.rings === ua.rings)) out.push({ id: 'UA', rings: ua.rings });
     return out;
-  }, [countryShapes, state.regionA, state.regionB]);
+  }, [countryShapes, state.regionA, state.regionB, showUkraine]);
 
   const variable = state.variable ? variableById[state.variable] : null;
   const chartVariable = variableById[state.chartVariable];
@@ -117,10 +167,10 @@ export default function Explore() {
       const img = variable?.imagery;
       if (!img) return null;
       // Daily layers use their own day of the year (ozone hole: 1 October); monthly ones follow the month picker.
-      const date = img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month);
+      const date = state.blackout && BLACKOUT_DATES[year] ? BLACKOUT_DATES[year] : img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month);
       // Points are drawn by the server at a fixed size, so finer levels just make them sharper.
       const wmsLevel = img.points ? 10 : (WMS_LEVEL[img.matrixSet] ?? 6);
-      let source = img.via === 'wms' ? wmsSource(img.layer, wmsLevel, date) : wmtsSource(img.layer, img.matrixSet, img.format, date);
+      let source = img.via === 'wms' ? wmsSource(img.layer, wmsLevel, date) : wmtsSource(img.layer, img.matrixSet, img.format, img.static ? 'default' : date);
       if (img.gapFill) {
         // Swath gaps: filled from the other satellite of the same day, or left open before it flew.
         const fill = img.gapFill.find((f) => date >= f.first);
@@ -132,9 +182,176 @@ export default function Explore() {
       if (img.native !== undefined) source = nativeSource(source, img.native, img.landOnly ? 3 : 0);
       return { source, opacity: img.points || variable!.id === 'truecolor' ? 1 : 0.85, points: img.points, landOnly: img.landOnly };
     },
-    [variable, state.month],
+    [variable, state.month, state.blackout],
   );
   const imagery = useMemo(() => imageryFor(state.year), [imageryFor, state.year]);
+
+  // ---------- live layers ----------
+  const live = useLiveManifest();
+  const manifest = live.manifest;
+
+  // Fires of the last 48 hours: for the layer, and for "what is near" under the pointer.
+  const [pointerSeen, setPointerSeen] = useState(false);
+  const [fireData, setFireData] = useState<LiveFires | null>(null);
+  useEffect(() => {
+    if ((!state.liveFires && !pointerSeen) || !manifest?.fires) return;
+    let cancelled = false;
+    loadFires(manifest)
+      .then((f) => !cancelled && setFireData(f))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [state.liveFires, pointerSeen, manifest]);
+  const liveFires = useMemo<GlobePoints | null>(() => {
+    if (!fireData || !manifest) return null;
+    // Ages were counted at the build; add the hours since then.
+    const since = Math.max(0, (Date.now() - Date.parse(manifest.built)) / 3600_000);
+    const time = new Float32Array(fireData.count);
+    for (let i = 0; i < fireData.count; i++) time[i] = -(fireData.ageMin[i] / 60 + since);
+    return { key: `live|${manifest.built}`, mode: 'live', lat: fireData.lat, lon: fireData.lon, time, size: fireData.frp };
+  }, [fireData, manifest]);
+
+  // Fire stories: the list, and the points of the one playing.
+  const [stories, setStories] = useState<FireStory[] | null>(null);
+  const [story, setStory] = useState<FireStory | null>(null);
+  const [storyPoints, setStoryPoints] = useState<GlobePoints | null>(null);
+  useEffect(() => {
+    if (stories || (state.panel !== 'fires' && !story)) return;
+    loadStories()
+      .then((d) => setStories(d.stories))
+      .catch(() => undefined);
+  }, [state.panel, stories, story]);
+  useEffect(() => {
+    if (!story) {
+      setStoryPoints(null);
+      return;
+    }
+    let cancelled = false;
+    loadStory(story)
+      .then((pts) => !cancelled && setStoryPoints({ key: `story|${story.id}`, mode: 'story', lat: pts.lat, lon: pts.lon, time: pts.hours, size: pts.frp }))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [story]);
+  const openStory = useCallback((st: FireStory) => {
+    setStory(st);
+    dispatch({ type: 'play', on: false });
+    globe.current?.flyTo(st.camera.lat, st.camera.lon, st.camera.distance);
+  }, []);
+  const fires = story ? storyPoints : state.liveFires ? liveFires : null;
+
+  // Air quality (SaveEcoBot), checked again every five minutes while shown.
+  const [aqi, setAqi] = useState<{ stations: AqiStation[] | null; error: boolean }>({ stations: null, error: false });
+  const wantAqi = state.aqi || state.panel === 'ukraine';
+  useEffect(() => {
+    if (!wantAqi) return;
+    let cancelled = false;
+    const load = () =>
+      loadAqi()
+        .then((stations) => !cancelled && setAqi({ stations, error: false }))
+        .catch(() => !cancelled && setAqi((a) => ({ stations: a.stations, error: true })));
+    void load();
+    const id = window.setInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [wantAqi]);
+  const [world, setWorld] = useState<{ built: string; p: AirPoint[] } | null>(null);
+  useEffect(() => {
+    if ((!state.aqi && !pointerSeen) || !manifest?.air || WAQI_TOKEN) return;
+    let cancelled = false;
+    loadAir(manifest)
+      .then((d) => !cancelled && setWorld(d))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [state.aqi, pointerSeen, manifest]);
+  // WAQI when a token is set; otherwise SaveEcoBot and Sensor.Community.
+  const waqi = useWaqi(state.aqi || pointerSeen);
+  const airStations = useMemo<AirStation[]>(() => mergeAir(aqi.stations ?? [], world, waqi.stations), [waqi.stations, aqi.stations, world]);
+  const airIndex = useMemo(() => (airStations.length ? { index: new PointIndex(airStations.map((x) => x.lat), airStations.map((x) => x.lon)), aqi: airStations.map((x) => x.aqi) } : null), [airStations]);
+  const stationLayer = useMemo<GlobeStations | null>(() => {
+    if (!state.aqi || !airStations.length) return null;
+    return {
+      key: `air|${airStations.length}|${world?.built ?? ''}`,
+      lat: airStations.map((x) => x.lat),
+      lon: airStations.map((x) => x.lon),
+      value: airStations.map((x) => x.aqi),
+      color: airStations.map((x) => AQI_COLORS[aqiBand(x.aqi)]),
+      old: airStations.map((x) => (isOld(x) ? 1 : 0)),
+    };
+  }, [state.aqi, airStations, world?.built]);
+  const [airHover, setAirHover] = useState<{ i: number; x: number; y: number; pinned: boolean } | null>(null);
+  const onStationHover = useCallback((i: number, x: number, y: number) => {
+    setAirHover((h) => (h?.pinned ? h : i < 0 ? null : { i, x, y, pinned: false }));
+  }, []);
+  const onStationPick = useCallback((i: number) => {
+    setAirHover((h) => ({ i, x: h?.x ?? window.innerWidth / 2, y: h?.y ?? window.innerHeight / 2, pinned: true }));
+  }, []);
+
+  // The front (DeepState): every version, one per day; the newest unless the slider moved.
+  const [versions, setVersions] = useState<FrontVersion[] | null>(null);
+  const [versionIndex, setVersionIndex] = useState(-1);
+  const wantFront = state.front || state.panel === 'ukraine';
+  useEffect(() => {
+    if (!wantFront || versions) return;
+    loadFrontHistory()
+      .then((list) => {
+        const daily = dailyVersions(list);
+        setVersions(daily);
+        setVersionIndex(daily.length - 1);
+      })
+      .catch(() => undefined);
+  }, [wantFront, versions]);
+  const [front, setFront] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; areas: FrontArea[] | null; id: number }>({ status: 'idle', areas: null, id: 0 });
+  const version = versions?.[versionIndex] ?? null;
+  useEffect(() => {
+    if (!state.front || !version) return;
+    let cancelled = false;
+    // Dragging the slider passes many versions: load the one it rests on.
+    const timer = window.setTimeout(() => {
+      setFront((f) => ({ ...f, status: 'loading' }));
+      loadFront(version.id)
+        .then((areas) => !cancelled && setFront({ status: 'ready', areas, id: version.id }))
+        .catch(() => !cancelled && setFront((f) => ({ ...f, status: 'error' })));
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [state.front, version]);
+  const frontVector = useMemo<GlobeVector | null>(() => {
+    if (!state.front || !front.areas) return null;
+    const areas = front.areas;
+    return { canvas: drawFront(areas), box: FRONT_BOX, key: `front|${front.id}`, draw: (box, width) => drawFront(areas, box, width) };
+  }, [state.front, front.areas, front.id]);
+
+  // Weather on the globe (GFS): the forecast hour closest to now, checked again every minute.
+  const [frame, setFrame] = useState<WeatherFrame | null>(null);
+  const wantWeather = (state.wind || state.field !== 'none' || pointerSeen) && !!manifest?.weather;
+  useEffect(() => {
+    if (!wantWeather || !manifest) return;
+    let cancelled = false;
+    loadFrame(manifest, nearestFrame(manifest))
+      .then((f) => !cancelled && setFrame(f))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [wantWeather, manifest]);
+  const globeWind = useMemo<GlobeWind | null>(() => (state.wind && frame ? { key: frame.time.toISOString(), sample: frame.wind } : null), [state.wind, frame]);
+  const globeField = useMemo<GlobeField | null>(() => {
+    if (state.field === 'none' || !frame) return null;
+    return { canvas: paintField(frame, state.field, 'equirect', 1440), key: `${state.field}|${frame.time.toISOString()}`, opacity: state.field === 'cloud' ? 0.9 : 1 };
+  }, [state.field, frame]);
+  // A data layer needs an evenly lit globe: the night side would hide it. Night lights are the
+  // opposite: they read best over the dark planet. The chosen style comes back with no layer.
+  const globeLight: Light = state.variable === 'nightlights' ? 'night' : state.variable || state.field !== 'none' ? 'flat' : state.light;
+  const flyUkraine = useCallback(() => globe.current?.flyTo(UKRAINE_VIEW.lat, UKRAINE_VIEW.lon, UKRAINE_VIEW.distance), []);
 
   // Ukraine war layer: the official list, painted once and draped over the globe.
   const [war, setWar] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; data: WarData | null }>({ status: 'idle', data: null });
@@ -164,8 +381,9 @@ export default function Explore() {
   const periodRange: [number, number] = state.variable === 'gistemp' ? GISTEMP_YEARS : chartYears;
   const from = Math.max(state.from, chartYears[0]);
   const to = Math.min(state.to, chartYears[1]);
-  const showYear = !!variable?.imagery || (state.variable === 'gistemp' && state.gistempMode === 'year');
-  const canPlay = !!variable?.imagery || state.variable === 'gistemp';
+  const dated = !!variable?.imagery && !variable.imagery.static;
+  const showYear = dated || (state.variable === 'gistemp' && state.gistempMode === 'year');
+  const canPlay = dated || state.variable === 'gistemp';
 
   // Before/after shutter: the left side shows `compare`, the right side the timeline year.
   const comparing = state.compare !== null && showYear;
@@ -205,7 +423,13 @@ export default function Explore() {
 
   // Hints about anomalies: marks on the globe when zoomed in, a card when clicked.
   const [hintId, setHintId] = useState<string | null>(null);
-  const globeHints = useMemo<GlobeHint[]>(() => hints.map((h) => ({ id: h.id, lat: h.lat, lon: h.lon, label: h.title[lang] })), [lang]);
+  // Events of the layer on the globe show at any zoom; the rest when zoomed in.
+  const globeHints = useMemo<GlobeHint[]>(
+    () => hints.map((h) => ({ id: h.id, lat: h.lat, lon: h.lon, label: h.title[lang], color: HINT_KINDS[h.kind].color, icon: HINT_KINDS[h.kind].icon, always: !!h.layer && h.layer === state.variable })),
+    [lang, state.variable],
+  );
+  const [hintHover, setHintHover] = useState<{ id: string; x: number; y: number } | null>(null);
+  const onHintHover = useCallback((id: string | null, x: number, y: number) => setHintHover(id ? { id, x, y } : null), []);
   const onHint = useCallback((id: string) => {
     setHintId(id);
     dispatch({ type: 'panel', panel: null });
@@ -228,7 +452,8 @@ export default function Explore() {
     }
     let cancelled = false;
     const next = state.year + 1;
-    const dwell = (variable?.imagery ? 900 : 450) / state.speed;
+    // Point layers (fires) need a moment more for every day's detections to arrive.
+    const dwell = (variable?.imagery?.points ? 1500 : variable?.imagery ? 900 : 450) / state.speed;
     const started = performance.now();
     const source = variable?.imagery ? imageryFor(next)?.source : null;
     const loaded = source && globe.current ? globe.current.preload(source) : Promise.resolve();
@@ -243,10 +468,13 @@ export default function Explore() {
     };
   }, [state.playing, state.speed, state.year, yearRange, variable, imageryFor]);
 
+  // Playback runs from a chosen year to the layer's last year.
+  const [playFromRaw, setPlayFrom] = useState<number | null>(null);
+  const playFrom = Math.min(yearRange[1] - 1, Math.max(yearRange[0], playFromRaw ?? (state.variable === 'gistemp' ? Math.max(yearRange[0], state.from) : yearRange[0])));
   const onPlay = (on: boolean) => {
     if (on) {
       if (state.variable === 'gistemp' && state.gistempMode !== 'year') dispatch({ type: 'mode', mode: 'year' });
-      if (state.year >= yearRange[1]) dispatch({ type: 'year', year: state.variable === 'gistemp' ? Math.max(yearRange[0], state.from) : yearRange[0] });
+      if (state.year >= yearRange[1] || state.year < playFrom) dispatch({ type: 'year', year: playFrom });
     }
     dispatch({ type: 'play', on });
   };
@@ -299,36 +527,36 @@ export default function Explore() {
     [state.picking, state.radiusKm, state.pickMode, state.panel],
   );
 
-  // Temperature, humidity, rain and wind under the pointer for the timeline month (NASA POWER).
-  const pointClimate = usePointClimate(hover, state.year, state.month);
-  let climateLine: string | null = null;
-  if (hover) {
-    const v = pointClimate.values;
-    if (pointClimate.status === 'error') climateLine = s.readout.error;
-    else if (!v) climateLine = s.readout.loading;
-    else {
-      const f1 = numberFormat(lang, 1, false);
-      const f0 = numberFormat(lang, 0, false);
-      const parts = [
-        v.temp !== null && `${s.readout.temp} ${f1(v.temp)} °C`,
-        v.humidity !== null && `${s.readout.humidity} ${f0(v.humidity)}%`,
-        v.precip !== null && `${s.readout.precip} ${f0(v.precip)} ${lang === 'uk' ? 'мм' : 'mm'}`,
-        v.wind !== null && `${s.readout.wind} ${f1(v.wind)} ${lang === 'uk' ? 'м/с' : 'm/s'}`,
-      ].filter(Boolean);
-      climateLine = `${s.readout.month(s.timeline.months[v.month - 1].toLowerCase(), v.year)}${v.clamped ? ` ${s.readout.clamped(v.year)}` : ''}: ${parts.join(' · ')}`;
-    }
-  }
+  // The colour map of the layer on the globe, to read values under the pointer.
+  const [colorMap, setColorMap] = useState<ColorMap | null>(null);
+  useEffect(() => {
+    setColorMap(null);
+    if (!state.variable) return;
+    let cancelled = false;
+    void loadColorMap(state.variable).then((m) => !cancelled && setColorMap(m));
+    return () => {
+      cancelled = true;
+    };
+  }, [state.variable]);
 
-  // Value under the pointer for the climate layer.
-  let readout: string | null = null;
-  if (hover) {
-    const where = formatPoint(hover.lat, hover.lon, lang);
-    if (state.variable === 'gistemp' && climate.data && climate.field) {
-      const v = climate.field.values[cellIndex(climate.data.meta, hover.lat, hover.lon)];
-      const unit = state.gistempMode === 'trend' ? t.explore.readout.perDecade : '°C';
-      readout = Number.isFinite(v) ? `${where}: ${numberFormat(lang, state.gistempMode === 'trend' ? 2 : 1)(v)} ${unit}` : `${where}: ${s.readout.noData}`;
-    } else {
-      readout = where;
+  // The value of the climate layer under the pointer.
+  let layerLine: string | null = null;
+  if (hover && state.variable === 'gistemp' && climate.data && climate.field) {
+    const v = climate.field.values[cellIndex(climate.data.meta, hover.lat, hover.lon)];
+    const unit = state.gistempMode === 'trend' ? t.explore.readout.perDecade : '°C';
+    layerLine = `${variableById.gistemp.name[lang]}: ${Number.isFinite(v) ? `${numberFormat(lang, state.gistempMode === 'trend' ? 2 : 1)(v)} ${unit}` : s.readout.noData}`;
+  } else if (hover && variable) {
+    // Any NASA GIBS layer: the colour under the pointer read back through the layer's colour map.
+    const c = colorMap ? globe.current?.sampleImagery(hover.lat, hover.lon) : null;
+    const hit = c && c[3] > 40 && colorMap ? lookup(colorMap, c[0], c[1], c[2]) : null;
+    const value = hit ? entryText(variable.id, hit.entry, lang) : null;
+    layerLine = `${variable.name[lang]}: ${value ? (colorMap!.numeric ? liveText.layerScale.level(value, levelWord(hit!.at, lang)) : value) : colorMap ? liveText.layerScale.noValue : ''}`.replace(/: $/, '');
+  }
+  if (hover && state.radiation) {
+    const dose = globe.current?.sampleRadiation(hover.lat, hover.lon) ?? null;
+    if (dose !== null) {
+      const lt = liveText.ukraine;
+      layerLine = lt.radiationAt(numberFormat(lang, dose < 1 ? 2 : 1, false)(dose), lt.radiationLevel[dose < 0.3 ? 0 : dose < 1 ? 1 : 2]);
     }
   }
 
@@ -352,14 +580,25 @@ export default function Explore() {
         borderLines={borderLines}
         labelLayers={state.labels}
         outlines={outlines}
+        light={globeLight}
+        relief={state.relief}
+        fires={fires}
+        stations={stationLayer}
+        onStationHover={onStationHover}
+        onStationPick={onStationPick}
+        front={frontVector}
+        radiation={state.radiation}
+        field={globeField}
+        wind={globeWind}
         onHint={onHint}
-        onHover={setHover}
+        onHintHover={onHintHover}
+        onHover={onHover}
         onPick={onPick}
         onView={setView}
         onLoadingChange={setLoading}
         apiRef={globe}
       />
-      <TopBar back center={<CountrySearch onFound={onFound} />} />
+      <TopBar back center={<CountrySearch onFound={onFound} />} view="3d" />
       <Rail
         panel={state.panel}
         analysisOpen={state.analysisOpen}
@@ -390,7 +629,59 @@ export default function Explore() {
               onBorders={(on) => dispatch({ type: 'borders', on })}
             />
           )}
+          {state.panel === 'fires' && (
+            <FiresPanel
+              liveFires={state.liveFires}
+              onLiveFires={(on) => dispatch({ type: 'set', state: { liveFires: on } })}
+              manifest={manifest}
+              manifestError={live.error}
+              liveCount={liveFires && state.liveFires ? liveFires.lat.length : null}
+              stories={stories}
+              storyId={story?.id ?? null}
+              onStory={openStory}
+              onUkraine={flyUkraine}
+            />
+          )}
+          {state.panel === 'ukraine' && (
+            <UkrainePanel
+              aqi={state.aqi}
+              radiation={state.radiation}
+              front={state.front}
+              war={state.war}
+              liveFires={state.liveFires}
+              blackout={state.blackout}
+              onAqi={(on) => dispatch({ type: 'set', state: { aqi: on } })}
+              onRadiation={(on) => dispatch({ type: 'set', state: { radiation: on } })}
+              onFront={(on) => dispatch({ type: 'set', state: { front: on } })}
+              onWar={(on) => dispatch({ type: 'war', on })}
+              onLiveFires={(on) => dispatch({ type: 'set', state: { liveFires: on } })}
+              onBlackout={(on) => {
+                dispatch({ type: 'blackout', on });
+                if (on) flyUkraine();
+              }}
+              onUkraine={flyUkraine}
+              stations={aqi.stations}
+              stationsError={aqi.error}
+              manifest={manifest}
+              versions={versions}
+              versionIndex={Math.max(0, versionIndex)}
+              onVersion={setVersionIndex}
+              frontStatus={front.status}
+              warData={war.data}
+              warStatus={war.status}
+            />
+          )}
           {state.panel === 'cases' && <CasesPanel activeId={state.caseId} onOpen={openCase} />}
+          {state.panel === 'weather' && (
+            <WeatherGlobeControls
+              wind={state.wind}
+              field={state.field}
+              manifest={manifest}
+              frameTime={frame ? frame.time.toISOString() : null}
+              onWind={(on) => dispatch({ type: 'set', state: { wind: on } })}
+              onField={(f) => dispatch({ type: 'set', state: { field: f } })}
+            />
+          )}
           {state.panel === 'weather' && (
             <WeatherPanel
               place={state.weatherAt}
@@ -437,7 +728,34 @@ export default function Explore() {
         />
       )}
 
-      {(variable || state.analysisOpen) && (
+      {story && (
+        <StoryPlayer story={story} onTime={(h) => globe.current?.setStoryTime(h)} onClose={() => setStory(null)} />
+      )}
+
+      {airHover && airStations[airHover.i] && (
+        <AirCard
+          station={airStations[airHover.i]}
+          x={airHover.x}
+          y={airHover.y}
+          pinned={airHover.pinned}
+          frame={frame}
+          fires={fireData}
+          onClose={() => setAirHover(null)}
+        />
+      )}
+
+      <MapStyle
+        relief={state.relief}
+        light={state.light}
+        lightOverridden={globeLight !== state.light}
+        borders={state.borders}
+        onRelief={(on) => dispatch({ type: 'set', state: { relief: on } })}
+        onLight={(l) => dispatch({ type: 'set', state: { light: l } })}
+        onBorders={(on) => dispatch({ type: 'borders', on })}
+      />
+      <MapControls onZoom={(f) => globe.current?.zoomBy(f)} onHome={() => globe.current?.home()} />
+
+      {!story && (dated || state.variable === 'gistemp' || state.analysisOpen) && (
         <Timeline
           year={showYear ? state.year : null}
           yearRange={yearRange}
@@ -456,6 +774,12 @@ export default function Explore() {
           onPeriod={(f, tt) => dispatch({ type: 'period', from: f, to: tt })}
           onPlay={onPlay}
           onSpeed={(speed) => dispatch({ type: 'speed', speed })}
+          playFrom={playFrom}
+          onPlayFrom={(y) => {
+            setPlayFrom(y);
+            dispatch({ type: 'year', year: y });
+          }}
+          showPeriod={state.analysisOpen || (state.variable === 'gistemp' && state.gistempMode !== 'year')}
         />
       )}
 
@@ -468,8 +792,10 @@ export default function Explore() {
             setHintId(null);
             if (c) openCase(c);
           }}
+          onLayer={(id) => dispatch({ type: 'variable', id: id as VariableId })}
         />
       )}
+      {hintHover && !hintId && hintById[hintHover.id] && <HintPreview hint={hintById[hintHover.id]} x={hintHover.x} y={hintHover.y} />}
 
       {variable && (
         <div className="layer-chip" role="group" aria-label={s.activeLayer}>
@@ -493,12 +819,10 @@ export default function Explore() {
         </div>
       )}
 
-      {readout && (
-        <p className="readout-chip">
-          <span>{readout}</span>
-          {climateLine && <span className="readout-chip__climate">{climateLine}</span>}
-        </p>
+      {!airHover && (
+        <CursorInfo point={hover} frame={frame} fires={fireData} air={airIndex} hints={hints} layerLine={layerLine} />
       )}
+      {state.radiation && (view?.distance ?? 3) >= 1.9 && <p className="explore__hint">{liveText.ukraine.radiationZoom}</p>}
       {loading && (
         <p className="explore__status" role="status">
           {s.imagery}
