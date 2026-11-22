@@ -7,6 +7,7 @@ const Explore = lazy(() => import('./pages/Explore'));
 // MapLibre only loads with the weather map.
 const WeatherMap = lazy(() => import('./pages/WeatherMap'));
 const MyCity = lazy(() => import('./pages/MyCity'));
+const War = lazy(() => import('./pages/War'));
 
 function ScrollManager() {
   const { pathname, hash } = useLocation();
@@ -44,6 +45,14 @@ export default function App() {
           element={
             <Suspense fallback={<main className="city" />}>
               <MyCity />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/war"
+          element={
+            <Suspense fallback={<main className="war" />}>
+              <War />
             </Suspense>
           }
         />

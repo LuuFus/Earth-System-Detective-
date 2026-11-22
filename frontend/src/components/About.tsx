@@ -4,7 +4,7 @@ import { useLiveText } from '../i18n/live';
 import { SourcesButton } from './Sources';
 import { Icon, type IconName } from './studio/Icon';
 
-type SectionId = 'globe' | 'night' | 'fires' | 'ukraine' | 'weather' | 'trends' | 'events';
+type SectionId = 'globe' | 'night' | 'fires' | 'ukraine' | 'city' | 'war' | 'weather' | 'trends' | 'events';
 
 /** Each part of the site with a screenshot of it (public/img/shots, taken from the site itself). */
 const SECTIONS: { id: SectionId; icon: IconName; to: string }[] = [
@@ -12,6 +12,8 @@ const SECTIONS: { id: SectionId; icon: IconName; to: string }[] = [
   { id: 'night', icon: 'moon', to: '/explore?light=sun' },
   { id: 'fires', icon: 'fire', to: '/explore?panel=fires&on=fires' },
   { id: 'ukraine', icon: 'ukraine', to: '/map?mode=ukraine' },
+  { id: 'city', icon: 'pin', to: '/city' },
+  { id: 'war', icon: 'front', to: '/war' },
   { id: 'weather', icon: 'wind', to: '/map?mode=weather' },
   { id: 'trends', icon: 'analysis', to: '/explore?v=t2m&a=c:UA' },
   { id: 'events', icon: 'pin', to: '/explore?panel=cases' },

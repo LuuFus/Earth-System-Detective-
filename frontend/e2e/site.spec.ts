@@ -9,7 +9,7 @@ test('home: the film, the about section with screenshots, the authors', async ({
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   const about = page.locator('#about');
   await about.scrollIntoViewIfNeeded();
-  await expect(about.locator('.about__section')).toHaveCount(7);
+  await expect(about.locator('.about__section')).toHaveCount(9);
   await expect(about).toContainText('IT Detectives');
   // Every screenshot has loaded (lazy images: scroll through first).
   for (const img of await about.locator('img').all()) {
@@ -138,5 +138,24 @@ test('my city: the page loads, the city can be pinned and shows on the home page
   await page.getByRole('button', { name: 'Закріпити' }).click();
   await page.goto('/');
   await expect(page.locator('.hero__city')).toContainText('Черкаси');
+  expect(errors).toEqual([]);
+});
+
+test('war and the environment: four stories, a working slider, videos load only on demand', async ({ page }) => {
+  const errors = collectErrors(page);
+  const youtube: string[] = [];
+  page.on('request', (r) => /youtube/.test(r.url()) && youtube.push(r.url()));
+  await page.goto('/war');
+  await expect(page.locator('.war-topic')).toHaveCount(4);
+  await expect(page.locator('.war-tally li')).toHaveCount(6);
+  // The slider moves the line between the two pictures.
+  const slider = page.locator('.before-after').first();
+  await slider.scrollIntoViewIfNeeded();
+  await slider.locator('input[type=range]').fill('20');
+  await expect(slider).toHaveAttribute('style', /--at: 20%/);
+  // Nothing from YouTube until a video is asked for; then the no-cookie player.
+  expect(youtube).toEqual([]);
+  await page.locator('.video__facade').first().click();
+  await expect(page.locator('iframe.video__frame')).toHaveAttribute('src', /youtube-nocookie\.com\/embed\//);
   expect(errors).toEqual([]);
 });

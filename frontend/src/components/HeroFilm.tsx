@@ -29,6 +29,7 @@ function pickRendition(): Rendition {
 export function HeroFilm() {
   const { t } = useI18n();
   const about = useLiveText().about;
+  const war = useLiveText().war;
   const reduced = useReducedMotion();
   const pageVisible = usePageVisible();
 
@@ -182,6 +183,10 @@ export function HeroFilm() {
           <Link className="pill-btn pill-btn--glass" to="/explore?panel=ukraine">
             <Icon name="ukraine" size={18} />
             {t.hero.links.ukraine}
+          </Link>
+          <Link className="pill-btn pill-btn--glass" to="/war">
+            <Icon name="front" size={18} />
+            {war.home}
           </Link>
           <MyCityChip />
         </div>

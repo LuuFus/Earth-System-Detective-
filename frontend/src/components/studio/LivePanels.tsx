@@ -325,10 +325,16 @@ export function UkrainePanel(p: UkraineProps) {
           <p className="tile__note">DeepState</p>
         </section>
       </div>
-      <button type="button" className="chip-btn" onClick={p.onUkraine}>
-        <Icon name="ukraine" size={16} />
-        {t.showUkraine}
-      </button>
+      <div className="panel-row">
+        <button type="button" className="chip-btn" onClick={p.onUkraine}>
+          <Icon name="ukraine" size={16} />
+          {t.showUkraine}
+        </button>
+        <Link className="chip-btn" to="/war">
+          <Icon name="front" size={16} />
+          {t.war.panel}
+        </Link>
+      </div>
 
       <section className="panel-sec">
         <Switch checked={p.aqi} onChange={p.onAqi} label={WAQI_TOKEN ? u.aqiWaqi : u.aqi} />

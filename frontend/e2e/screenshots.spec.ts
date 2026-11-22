@@ -117,6 +117,18 @@ test.describe('desktop', () => {
   });
 });
 
+test.describe('new sections', () => {
+  test('my city and the war', async ({ page }) => {
+    await open(page, '/city?name=Черкаси&lat=49.4444&lon=32.0598&admin=Черкаська область&country=Україна', 12000);
+    await save(page, 'city');
+    await open(page, '/war', 4000);
+    await save(page, 'war');
+    await page.evaluate(() => document.getElementById('kakhovka')!.scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(2500);
+    await save(page, 'war-kakhovka');
+  });
+});
+
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
 
