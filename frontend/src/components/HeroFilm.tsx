@@ -4,6 +4,7 @@ import { filmClips, filmPoster, type Rendition } from '../data/media';
 import { usePageVisible, useReducedMotion } from '../hooks/useMedia';
 import { useI18n } from '../i18n/I18n';
 import { useLiveText } from '../i18n/live';
+import { MyCityChip } from './MyCityChip';
 import { SplitButton } from './SplitButton';
 import { Icon } from './studio/Icon';
 import { TopBar } from './TopBar';
@@ -182,6 +183,7 @@ export function HeroFilm() {
             <Icon name="ukraine" size={18} />
             {t.hero.links.ukraine}
           </Link>
+          <MyCityChip />
         </div>
       </div>
 

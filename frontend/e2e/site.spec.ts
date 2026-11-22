@@ -128,3 +128,15 @@ for (const layer of ['Вітер', 'Дрібний пил PM2.5']) {
     expect(fps).toBeGreaterThan(20);
   });
 }
+
+test('my city: the page loads, the city can be pinned and shows on the home page', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/city?name=Черкаси&lat=49.4444&lon=32.0598&country=Україна');
+  await expect(page.getByRole('heading', { level: 1, name: 'Черкаси' })).toBeVisible();
+  await expect(page.locator('.city-advice__item').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.city-now__temp')).toBeVisible();
+  await page.getByRole('button', { name: 'Закріпити' }).click();
+  await page.goto('/');
+  await expect(page.locator('.hero__city')).toContainText('Черкаси');
+  expect(errors).toEqual([]);
+});
