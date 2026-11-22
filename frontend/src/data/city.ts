@@ -9,11 +9,11 @@ import { distanceKm, PointIndex } from './nearby';
 import { loadAqi } from './ukraine';
 import { WAQI_TOKEN } from './waqi';
 
-export type City = { name: string; admin?: string; country?: string; cc?: string; lat: number; lon: number };
+export type City = { name: string; admin?: string; country?: string; cc?: string; lat: number; lon: number; population?: number };
 
 // ---------- choosing and keeping a city ----------
 
-type GeoResult = { name: string; latitude: number; longitude: number; country?: string; country_code?: string; admin1?: string };
+type GeoResult = { name: string; latitude: number; longitude: number; country?: string; country_code?: string; admin1?: string; population?: number };
 
 /** Places by name, in the page's language (Open-Meteo geocoding, GeoNames). */
 export async function searchCities(query: string, lang: 'uk' | 'en', signal?: AbortSignal): Promise<City[]> {
@@ -22,7 +22,7 @@ export async function searchCities(query: string, lang: 'uk' | 'en', signal?: Ab
   const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=${lang}&format=json`, { signal });
   if (!r.ok) throw new Error(`geocoding ${r.status}`);
   const d = (await r.json()) as { results?: GeoResult[] };
-  return (d.results ?? []).map((x) => ({ name: x.name, admin: x.admin1, country: x.country, cc: x.country_code, lat: x.latitude, lon: x.longitude }));
+  return (d.results ?? []).map((x) => ({ name: x.name, admin: x.admin1, country: x.country, cc: x.country_code, lat: x.latitude, lon: x.longitude, population: x.population }));
 }
 
 const KEY = 'my-city';

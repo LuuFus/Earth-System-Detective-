@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useI18n } from '../i18n/I18n';
 import { useLiveText } from '../i18n/live';
 import type { Lang } from '../i18n/strings';
+import { AskEarth } from './AskEarth';
 import { SourcesButton } from './Sources';
 import { Icon } from './studio/Icon';
 
@@ -127,6 +128,7 @@ export function TopBar({ back = false, center, view, sources = false, left }: { 
         </div>
       )}
       <div className="topbar__right">
+        <AskEarth />
         {sources && <SourcesButton lang={lang} />}
         <LangToggle />
       </div>

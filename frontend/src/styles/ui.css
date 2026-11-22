@@ -5168,3 +5168,77 @@ a.chip-btn {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- ask the earth ---------- */
+
+.ask {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(88svh, 900px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sheet);
+  background: var(--surface-1);
+  color: var(--text-1);
+  box-shadow: var(--shadow-float);
+}
+
+.ask::backdrop {
+  background: rgb(4 6 11 / 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.ask__inner {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.ask__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ask__head h2 {
+  margin: 0;
+  font: 600 var(--fs-xl, 22px) / 1.2 var(--font-body);
+}
+
+.ask__form {
+  width: 100%;
+  background: var(--surface-2);
+}
+
+.ask__input {
+  padding-left: var(--space-4);
+}
+
+.ask__suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--r-row);
+  background: var(--surface-2);
+  font-size: var(--fs-lg);
+  line-height: 1.5;
+}
+
+.ask-card__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1, 4px);
+}
+
+.ask__answer:empty {
+  display: none;
+}

@@ -159,3 +159,20 @@ test('war and the environment: four stories, a working slider, videos load only 
   await expect(page.locator('iframe.video__frame')).toHaveAttribute('src', /youtube-nocookie\.com\/embed\//);
   expect(errors).toEqual([]);
 });
+
+test('ask the Earth: a question about a town gets an answer with numbers and a link', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Запитай Землю' }).click();
+  await page.getByRole('searchbox', { name: /Наприклад/ }).fill('Яка погода завтра в Одесі?');
+  await page.getByRole('button', { name: 'Запитати' }).click();
+  const card = page.locator('.ask-card');
+  await expect(card).toContainText('Одеса', { timeout: 30_000 });
+  await expect(card).toContainText('завтра');
+  await expect(card.getByRole('link').first()).toBeVisible();
+  // A question it cannot read gets the list of what it can.
+  await page.getByRole('searchbox', { name: /Наприклад/ }).fill('Привіт');
+  await page.getByRole('button', { name: 'Запитати' }).click();
+  await expect(card).toContainText('прості питання');
+  expect(errors).toEqual([]);
+});
