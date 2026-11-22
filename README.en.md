@@ -27,7 +27,13 @@ On the site you can:
 - **compare** two countries, two regions or two years;
 - **find out** what is happening in Ukraine: air quality, the front line, occupied communities,
   radiation, fires and blackouts after the strikes on the power grid;
-- **understand** events: what happened, why, who or what caused it and what can be done.
+- **understand** events: what happened, why, who or what caused it and what can be done;
+- **follow your own city**: the weather, the air (measured and forecast by a model), fires nearby, how
+  the climate has changed and the advice of the day — on one page;
+- **see the war’s toll on the environment**: the Kakhovka dam, burned land along the front, Azovstal,
+  Chornobyl and the Zaporizhzhia plant — with images before and after and sources;
+- **ask the Earth** in plain words: “Is it getting warmer in Cherkasy?” — and get an answer with
+  numbers.
 
 ### Why
 
@@ -54,12 +60,17 @@ for ourselves: fires, Ukraine, weather, air quality, events and a new design.
 - [The real Sun, night and blackout](#the-real-sun-night-and-blackout)
 - [Fires](#fires)
 - [Map of Ukraine](#map-of-ukraine)
+- [My city](#my-city)
+- [The war’s toll on the environment](#the-wars-toll-on-the-environment)
 - [Weather forecast](#weather-forecast)
+- [Air quality forecast](#air-quality-forecast)
+- [Ask the Earth](#ask-the-earth)
 - [Trend analysis and comparison](#trend-analysis-and-comparison)
 - [Events](#events)
 - [Home page and phone](#home-page-and-phone)
 - [How it works](#how-it-works)
 - [Run it](#run-it)
+- [Tests](#tests)
 - [Data sources](#data-sources)
 
 The screenshots show the Ukrainian interface; the site switches to English with one button.
@@ -134,6 +145,45 @@ out to the world the dimming fades). Map styles: relief, satellite, OpenStreetMa
 
 ![Station card: the main pollutant and what is nearby](docs/screenshots/air-card.jpg)
 
+## My city
+
+![My city: Cherkasy — the weather, advice of the day, air, fires and climate](docs/screenshots/city.jpg)
+
+The `/city` page: choose a town by name or with “Where am I”, and one screen has what matters today.
+**Pin** the city and it shows on the home page with its temperature and AQI (kept in this browser
+only).
+
+- **Now** and the **weather** for 24 hours and 7 days (Open-Meteo).
+- **Air**: the AQI of the nearest station (SaveEcoBot, Sensor.Community, WAQI; with when it was
+  measured) and the CAMS model now, over the last day and 3 days ahead.
+- **Advice of the day**: the best time to air the rooms, whether to go for a walk or a run, strong sun
+  (UV) and desert dust — with the reasons from the data. Advice, not medical guidance.
+- **Fires nearby**: NASA FIRMS detections within 50 km over 48 hours.
+- **How the climate has changed**: the yearly temperature since 1981 (NASA POWER) with Sen’s slope and
+  the Mann-Kendall test, e.g. “+2.5 °C since 1981, a significant trend”.
+
+## The war’s toll on the environment
+
+![The war’s toll on the environment: the damage in numbers](docs/screenshots/war.jpg)
+
+The `/war` section — four stories of what the war does to Ukraine’s nature:
+
+- **The Kakhovka dam** — Landsat images (NASA Earth Observatory) before and after with a slider: the
+  reservoir, the flood on the Dnipro, the irrigation canals of the south;
+- **Burned land along the front** — forests, mines, emissions from landscape fires;
+- **Mariupol, Azovstal and the Sea of Azov** — industrial pollution, warnings that were never
+  confirmed, and fake photos;
+- **Chornobyl and the Zaporizhzhia plant** — occupation, the drone strike on the confinement arch, the
+  plant’s power losses.
+
+Each has what happened, **what it means for Ukraine and for the world**, photos under free licences
+with their authors (no photos of the dead or wounded), and videos with their channels named (IAEA,
+EBRD, EPRS, AP, UATV) that load from YouTube without cookies only when played. At the top, **the
+damage in numbers**: environmental damage, war emissions, forests, mined land, protected areas, the
+Kakhovka reservoir — each with its date and a link to the primary source.
+
+![The Kakhovka dam: before and after with a slider](docs/screenshots/war-kakhovka.jpg)
+
 ## Weather forecast
 
 ![Weather forecast: animated wind over Europe](docs/screenshots/weather-wind.jpg)
@@ -151,6 +201,30 @@ hours ahead in 3-hour steps.
   happens here" for rain, heat, frost or strong wind in 1981–2000 versus 2006–2025.
 
 ![Temperature forecast and the forecast at a point](docs/screenshots/weather-temp.jpg)
+
+## Air quality forecast
+
+![The CAMS model's PM2.5 forecast over Ukraine](docs/screenshots/air-forecast.jpg)
+
+The weather map has an **“Air · model forecast”** group: the AQI, fine particles PM2.5 and desert dust
+from the Copernicus CAMS model over Ukraine and its neighbours, 3 days ahead in 3-hour steps. The
+player shows smoke and dust moving, with the wind lines and station cards of the same moment. It is
+labelled honestly as **a model, not measurements**; the bubbles on the map of Ukraine are station
+measurements.
+
+## Ask the Earth
+
+![Ask the Earth: “Is it getting warmer in Cherkasy?”](docs/screenshots/ask.jpg)
+
+The **Ask the Earth** button at the top of every page: type a question in plain words — “Is it getting
+warmer in Cherkasy?”, “What is the air like in Kyiv now?”, “Are there fires near Kharkiv?”, “What is
+the weather tomorrow in Odesa?” — and the site finds the place, works out the answer from the data and
+links to the globe, map or city page.
+
+No AI yet: the site reads the topic (temperature, rain, snow, air, fires, weather, ice, war) and the
+place (a country by name, a town via Open-Meteo search, undoing Ukrainian case endings). The answer is
+computed with the same methods as the analysis (Sen’s slope, Mann-Kendall). Claude can be connected
+here later to understand any question.
 
 ## Trend analysis and comparison
 
@@ -210,6 +284,8 @@ how to start, each part with a screenshot, how the data update, who it is for an
 - **2D map**: MapLibre GL; wind and station bubbles are drawn on their own canvases over the map.
 - **Analysis**: statistics in the browser — Mann-Kendall tests (plain and seasonal), the Theil-Sen
   slope with a confidence interval.
+- **Web Workers** (with Comlink): forecast frames are painted on a background thread with
+  OffscreenCanvas, so the map and globe keep moving during playback (about 45 frames a second).
 - Animations: springs from the design system (Jelly slider, Stat card).
 
 **Data** (`data-pipeline/`, Python): some servers do not serve browsers on other sites, so scripts
@@ -218,6 +294,8 @@ collect the data and publish it as files.
 - `build_live.py` — the NOAA GFS forecast (its own GRIB2 reader, no ecCodes), NASA FIRMS fires (VIIRS
   and MODIS), Sensor.Community sensors with a filter for broken ones (readings many times above their
   neighbours) and the AQI on the US EPA 2024 scale. The data are compressed so the site loads faster.
+- The same script fetches the CAMS air quality forecast (Open-Meteo) twice a day on a 0.5° grid
+  over Ukraine and its neighbours; in between it reuses the one already published.
 - `build_fire_stories.py` — big fires from the FIRMS archives.
 - Other scripts prepare GISTEMP, the ozone hole, NO₂ and MODIS over Ukraine, occupied communities,
   Natural Earth borders and names.
@@ -232,6 +310,7 @@ SaveEcoBot, WAQI, RainViewer, DeepState, Safecast, OpenStreetMap Nominatim, Wiki
 | Fires, last 48 hours | NASA FIRMS (VIIRS, MODIS) | every hour |
 | Weather forecast | NOAA GFS 1° | every hour (new runs every 6 hours) |
 | Air quality | SaveEcoBot, Sensor.Community, WAQI | every hour |
+| Air quality forecast | Copernicus CAMS via Open-Meteo | twice a day |
 | Precipitation radar | RainViewer | every few minutes |
 | Front line | DeepState | as soon as a change is published |
 | NASA layers and series | GIBS, POWER, GISTEMP | as new months come out |
@@ -262,6 +341,22 @@ Sensor.Community.
 Code, data and how to refresh GISTEMP are in [`frontend/README.en.md`](frontend/README.en.md);
 colours, type and components in [`DESIGN.md`](DESIGN.md).
 
+## Tests
+
+```bash
+cd frontend
+npm test            # Vitest: statistics, AQI, advice, question parsing, forecast fields
+npm run test:e2e    # Playwright in the installed Chrome: the site in a real browser
+npm run screenshots # Playwright: retake the screenshots for this README
+```
+
+- **Vitest** checks the Mann-Kendall tests and Sen’s slope against values computed independently in
+  SciPy (`frontend/tests/reference/`), and the AQI, station search, advice and question parsing. The
+  tests run before every deployment: if something breaks, the site is not updated.
+- **Playwright** opens the site in Chrome and checks what broke before: the real Sun from the first
+  second, year labels, air bubbles, smooth forecast playback (no frame over 400 ms), the phone layout,
+  My city, the war section and Ask the Earth.
+
 ## Deployment
 
 Every push to `main`, and an hourly schedule, run GitHub Actions
@@ -276,6 +371,9 @@ collected, the site is built and published to the `gh-pages` branch, which GitHu
 | `frontend/src/pages/` | Pages: home, 3D Earth (`Explore`), 2D map (`WeatherMap`) |
 | `frontend/src/data/` | Loading and processing data in the browser |
 | `frontend/src/analysis/` | Statistics: Mann-Kendall, Sen's slope, data series |
+| `frontend/src/workers/` | Background threads: painting forecast fields |
+| `frontend/e2e/` | Playwright tests and screenshots |
+| `frontend/tests/reference/` | Reference statistics from SciPy |
 | `frontend/src/i18n/` | Ukrainian and English text |
 | `frontend/public/data/` | Prepared data: GISTEMP, borders, fire stories |
 | `data-pipeline/` | Python scripts that collect and prepare data |
@@ -287,7 +385,11 @@ collected, the site is built and published to the `gh-pages` branch, which GitHu
 NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI, MODIS, NASA FIRMS,
 NASA Black Marble, NASA Image and Video Library, NASA JSC Crew Earth Observations; NOAA GFS; NOAA
 Storm Prediction Center; RainViewer; Open-Meteo; Copernicus CAMS via Open-Meteo; DeepState;
-SaveEcoBot; Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0); the list of occupied
+SaveEcoBot; Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0);
+NASA Earth Observatory; CEOBS; UNEP; the IAEA (via the World Nuclear Association); Ukraine's State
+Environmental Inspectorate, State Forest Resources Agency and State Emergency Service; the Initiative
+on GHG Accounting of War; IAEA, EBRD, EPRS, AP and UATV videos on YouTube; Open-Meteo town search
+(GeoNames); the list of occupied
 communities from Ukraine's Ministry of Development; Natural Earth maps (public domain) and
 OpenStreetMap (ODbL); photos from Wikimedia Commons (authors and licences in the event cards).
 

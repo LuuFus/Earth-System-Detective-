@@ -127,6 +127,20 @@ test.describe('new sections', () => {
     await page.waitForTimeout(2500);
     await save(page, 'war-kakhovka');
   });
+
+  test('air forecast and ask the Earth', async ({ page }) => {
+    await open(page, '/map?mode=weather', 10000);
+    await page.getByText('Дрібний пил PM2.5', { exact: true }).click();
+    await page.waitForTimeout(4000);
+    await save(page, 'air-forecast');
+    await open(page, '/', 3000);
+    await page.getByRole('button', { name: 'Запитай Землю' }).click();
+    await page.getByRole('searchbox').fill('Чи теплішає в Черкасах?');
+    await page.getByRole('button', { name: 'Запитати' }).click();
+    await page.locator('.ask-card').waitFor({ timeout: 40_000 });
+    await page.waitForTimeout(1500);
+    await save(page, 'ask');
+  });
 });
 
 test.describe('phone', () => {

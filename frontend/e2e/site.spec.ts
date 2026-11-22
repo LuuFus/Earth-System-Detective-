@@ -22,16 +22,18 @@ test('home: the film, the about section with screenshots, the authors', async ({
 test('globe: the real Sun lights the day side from the first frame', async ({ page }) => {
   const errors = collectErrors(page);
   const sun = subsolarLon();
-  // Facing the Sun: bright. Facing away: dark, with only city lights. Checked within 10 s of loading,
-  // which caught the Sun being placed only after 30 s.
-  await page.goto(`/explore?light=sun&cam=0.00,${sun.toFixed(2)},3.00`);
-  await page.waitForTimeout(8000);
-  const day = await centreBrightness(page);
-  await page.goto(`/explore?light=sun&cam=0.00,${wrapLon(sun + 180).toFixed(2)},3.00`);
-  await page.waitForTimeout(8000);
-  const night = await centreBrightness(page);
-  // Brightness depends on what is under the Sun (a dark ocean, a desert): compare, don't threshold.
-  expect(day).toBeGreaterThan(night * 4 + 5);
+  // Each side is compared with the same view under even light, so what lies there (a dark ocean,
+  // a desert) does not matter. Measured within 10 s of loading, which caught the Sun being placed
+  // only after 30 s.
+  const look = async (lon: number, light: string) => {
+    await page.goto(`/explore?${light}cam=0.00,${wrapLon(lon).toFixed(2)},3.00`);
+    await page.waitForTimeout(8000);
+    return centreBrightness(page, 120);
+  };
+  const day = (await look(sun, 'light=sun&')) / (await look(sun, ''));
+  const night = (await look(sun + 180, 'light=sun&')) / (await look(sun + 180, ''));
+  expect(day).toBeGreaterThan(0.6);
+  expect(night).toBeLessThan(0.4);
   expect(errors).toEqual([]);
 });
 
