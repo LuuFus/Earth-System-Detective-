@@ -24,7 +24,9 @@ import { isOld, mergeAir, type AirStation } from '../data/air';
 import { useWaqi, WAQI_TOKEN } from '../data/waqi';
 import { countries } from '../data/countries';
 import { countryName, loadBorders, loadCountries } from '../data/geo';
-import { ago, fieldValue, loadAir, loadFires, loadFrame, nearestFrame, paintField, useLiveManifest, type AirPoint, type FieldKind, type LiveFires, type WeatherFrame } from '../data/live';
+import { worldView, type FieldView, type GridFrame } from '../data/field';
+import { paintFieldAsync } from '../data/fieldPainter';
+import { ago, airqBounds, fieldValue, isAirKind, loadAir, loadAirq, loadFires, loadFrame, nearestFrame, useLiveManifest, type AirPoint, type FieldKind, type LiveFires, type LiveManifest, type WeatherFrame } from '../data/live';
 import { doseFromColor } from '../data/safecast';
 import { AQI_COLORS, aqiBand, dailyVersions, loadAqi, loadFront, loadFrontHistory, SAFECAST_TILES, type AqiStation } from '../data/ukraine';
 import { loadWar } from '../data/war';
@@ -46,6 +48,30 @@ const LAYERS: { id: Layer; icon: IconName }[] = [
   { id: 'cloud', icon: 'cloud' },
   { id: 'radar', icon: 'radar' },
 ];
+/** The CAMS air quality forecast: a model over Ukraine and its neighbours. */
+const AIR_LAYERS: { id: Layer; icon: IconName }[] = [
+  { id: 'aqi', icon: 'air' },
+  { id: 'pm25', icon: 'fog' },
+  { id: 'dust', icon: 'sun' },
+];
+type Coords = [[number, number], [number, number], [number, number], [number, number]];
+
+/** The air forecast's box as a Web Mercator picture about 700 pixels wide. */
+function airView(manifest: LiveManifest): { view: FieldView; coords: Coords } {
+  const b = airqBounds(manifest);
+  const merc = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  const width = 704;
+  const height = Math.round((width * (merc(b.north) - merc(b.south))) / (((b.east - b.west) * Math.PI) / 180));
+  return {
+    view: { width, height, ...b, projection: 'mercator' },
+    coords: [
+      [b.west, b.north],
+      [b.east, b.north],
+      [b.east, b.south],
+      [b.west, b.south],
+    ],
+  };
+}
 const MERC = 85.051129;
 const WORLD: [[number, number], [number, number], [number, number], [number, number]] = [
   [-180, MERC],
@@ -138,12 +164,15 @@ export default function MapPage() {
   const [base, setBase] = useState(false);
   const [zoom, setZoom] = useState(4.2);
   const [style, setStyle] = useStored<Style>('map-style', 'relief');
-  const [layer, setLayer] = useStored<Layer>('wm-layer', 'wind');
+  const [storedLayer, setLayer] = useStored<Layer>('wm-layer', 'wind');
   const [particles, setParticles] = useStored<'on' | 'off'>('wm-particles', 'on');
   const [weatherOver, setWeatherOver] = useStored<'on' | 'off'>('map-ua-weather', 'off');
   const weather = !uaMode || weatherOver === 'on';
   const [ua, setUa] = useState({ aqi: true, fires: true, front: true, war: false, radiation: false });
   const { manifest } = useLiveManifest();
+  // An air layer needs the air forecast; a site built without it shows the wind instead.
+  const layer: Layer = isAirKind(storedLayer) && manifest && !manifest.airq ? 'wind' : storedLayer;
+  const isAir = isAirKind(layer);
   const frames = useMemo(() => manifest?.weather?.frames ?? [], [manifest]);
   const [index, setIndex] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -576,6 +605,40 @@ export default function MapPage() {
       cancelled = true;
     };
   }, [manifest, index, frames.length, wantFrame]);
+  // The air quality forecast: its own 3-hour steps. The weather frame follows its time, so the
+  // wind lines and the station cards stay those of the same moment.
+  const [airq, setAirq] = useState<GridFrame[] | null>(null);
+  const [airIndex, setAirIndex] = useState<number | null>(null);
+  const airBuilt = manifest?.airq?.built;
+  useEffect(() => {
+    if (!manifest?.airq || !isAir || !weather) return;
+    let cancelled = false;
+    void loadAirq(manifest)
+      .then((list) => {
+        if (cancelled) return;
+        setAirq(list);
+        const at = Date.now();
+        let best = 0;
+        list.forEach((f, i) => Math.abs(f.time.getTime() - at) < Math.abs(list[best].time.getTime() - at) && (best = i));
+        setAirIndex((i) => (i !== null && i < list.length ? i : best));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // The frames change only with a new forecast.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [airBuilt, isAir, weather]);
+  const airFrame = isAir && airq && airIndex !== null ? (airq[airIndex] ?? null) : null;
+  useEffect(() => {
+    if (airFrame && manifest?.weather) setIndex(nearestFrame(manifest, airFrame.time.getTime()));
+  }, [airFrame, manifest]);
+  useEffect(() => {
+    if (!playing || !isAir || !airq?.length) return;
+    const id = window.setInterval(() => setAirIndex((i) => (i === null || i + 1 >= airq.length ? 0 : i + 1)), STEP_MS);
+    return () => window.clearInterval(id);
+  }, [playing, isAir, airq]);
+
   // Playback: a clock runs through the forecast smoothly, one 3-hour step every STEP_MS. The wind
   // lines blend between the two frames around the clock, so they never jump; the colour field
   // cross-fades at each step from a picture painted while the previous step was showing.
@@ -586,7 +649,7 @@ export default function MapPage() {
     blend.current = { a: frame, b: null, f: 0 };
   }, [frame]);
   useEffect(() => {
-    if (!playing || !manifest?.weather || index === null || layer === 'radar' || !frames.length) return;
+    if (!playing || !manifest?.weather || index === null || layer === 'radar' || isAir || !frames.length) return;
     let raf = 0;
     let cancelled = false;
     let clock = index;
@@ -623,76 +686,101 @@ export default function MapPage() {
     };
     // The clock starts from the frame shown when playback begins; index changes come from the clock.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, manifest, frames.length, layer]);
+  }, [playing, manifest, frames.length, layer, isAir]);
 
-  // Painted fields, kept for replays. The data is a 1° grid, so 640 pixels across the world
+  // Painted fields, kept for replays. They are painted in a worker (fieldPainter.ts), so the map
+  // keeps moving while a frame is drawn. The weather is a 1° grid, so 640 pixels across the world
   // already hold every detail; the map smooths it on the GPU.
-  const painted = useRef(new Map<string, HTMLCanvasElement>());
-  const paint = useCallback((f: WeatherFrame, kind: FieldKind): HTMLCanvasElement => {
-    const key = `${kind}|${f.time.toISOString()}`;
+  const painted = useRef(new Map<string, Promise<ImageBitmap | HTMLCanvasElement>>());
+  const paint = useCallback((f: GridFrame, kind: FieldKind, view: FieldView): Promise<ImageBitmap | HTMLCanvasElement> => {
+    const key = `${kind}|${f.time.toISOString()}|${view.width}x${view.height}|${view.west},${view.north}`;
     const cache = painted.current;
-    let c = cache.get(key);
-    if (c) {
+    let p = cache.get(key);
+    if (p) {
       // Most recently used last, so the oldest goes first.
       cache.delete(key);
-      cache.set(key, c);
-      return c;
+      cache.set(key, p);
+      return p;
     }
-    c = paintField(f, kind, 'mercator', FIELD_PX);
-    cache.set(key, c);
-    if (cache.size > 28) cache.delete(cache.keys().next().value as string);
-    return c;
+    p = paintFieldAsync(f, kind, view);
+    cache.set(key, p);
+    if (cache.size > 28) {
+      const oldest = cache.keys().next().value as string;
+      void cache.get(oldest)?.then((pic) => 'close' in pic && pic.close());
+      cache.delete(oldest);
+    }
+    return p;
   }, []);
 
   // The colour field, under Ukraine's mask so the dimming still reads: two layers cross-fade.
   // They are canvas sources, which keep one texture each and only refresh its pixels; an image
-  // source builds a new texture for every picture and stalls the map for about a second.
+  // source builds a new texture for every picture and stalls the map for about a second. The
+  // weather covers the world, the air forecast its own box: the sources move to the box shown.
   const front = useRef(0);
   const fieldCanvases = useRef<HTMLCanvasElement[] | null>(null);
+  const placed = useRef('');
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     const ids = ['field-0', 'field-1'];
-    if (!weather || layer === 'radar' || !frame) {
+    const shown = isAir ? airFrame : frame;
+    if (!weather || layer === 'radar' || !shown || (isAir && !manifest?.airq)) {
       for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
       return;
     }
-    const canvases = (fieldCanvases.current ??= ids.map(() => {
-      const c = document.createElement('canvas');
-      c.width = FIELD_PX;
-      c.height = FIELD_PX;
-      return c;
-    }));
-    for (const [i, id] of ids.entries()) {
-      if (map.getSource(id)) continue;
-      map.addSource(id, { type: 'canvas', canvas: canvases[i], coordinates: WORLD, animate: false });
-      map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': 0, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } }, map.getLayer('ua-mask') ? 'ua-mask' : undefined);
-    }
-    const next = 1 - front.current;
-    const ctx = canvases[next].getContext('2d')!;
-    ctx.clearRect(0, 0, FIELD_PX, FIELD_PX);
-    ctx.drawImage(paint(frame, layer), 0, 0);
-    // A paused canvas source uploads its pixels only while "playing": play for one frame.
-    const src = map.getSource(ids[next]) as CanvasSource | undefined;
-    if (src) {
-      src.play();
-      map.once('render', () => src.pause());
-    }
-    const fade = playing ? Math.round(STEP_MS * 0.6) : 250;
-    for (const id of ids) {
-      map.setLayoutProperty(id, 'visibility', 'visible');
-      map.setPaintProperty(id, 'raster-opacity-transition', { duration: fade, delay: 0 });
-    }
-    map.setPaintProperty(ids[next], 'raster-opacity', 0.82);
-    map.setPaintProperty(ids[front.current], 'raster-opacity', 0);
-    front.current = next;
-    // Paint the next step while this one shows, so the next cross-fade is ready in time.
+    const { view, coords } = isAir ? airView(manifest!) : { view: worldView('mercator', FIELD_PX), coords: WORLD };
     let cancelled = false;
-    if (playing && manifest?.weather && index !== null) {
+    void paint(shown, layer, view).then((pic) => {
+      if (cancelled || !mapRef.current) return;
+      const canvases = (fieldCanvases.current ??= ids.map(() => document.createElement('canvas')));
+      const where = coords.flat().join(',');
+      const moved = placed.current !== where;
+      for (const [i, id] of ids.entries()) {
+        const c = canvases[i];
+        if (c.width !== view.width || c.height !== view.height) {
+          c.width = view.width;
+          c.height = view.height;
+        }
+        const src = map.getSource(id) as CanvasSource | undefined;
+        if (!src) {
+          map.addSource(id, { type: 'canvas', canvas: c, coordinates: coords, animate: false });
+          map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': 0, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } }, map.getLayer('ua-mask') ? 'ua-mask' : undefined);
+        } else if (moved) {
+          // A picture of the other box must not flash in the new place: clear and hide both first.
+          c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+          map.setPaintProperty(id, 'raster-opacity-transition', { duration: 0, delay: 0 });
+          map.setPaintProperty(id, 'raster-opacity', 0);
+          src.setCoordinates(coords);
+        }
+      }
+      placed.current = where;
+      const next = 1 - front.current;
+      const ctx = canvases[next].getContext('2d')!;
+      ctx.clearRect(0, 0, view.width, view.height);
+      ctx.drawImage(pic, 0, 0);
+      // A paused canvas source uploads its pixels only while "playing": play for one frame.
+      for (const id of moved ? ids : [ids[next]]) {
+        const src = map.getSource(id) as CanvasSource | undefined;
+        if (src) {
+          src.play();
+          map.once('render', () => src.pause());
+        }
+      }
+      const fade = playing ? Math.round(STEP_MS * 0.6) : 250;
+      for (const id of ids) {
+        map.setLayoutProperty(id, 'visibility', 'visible');
+        map.setPaintProperty(id, 'raster-opacity-transition', { duration: fade, delay: 0 });
+      }
+      map.setPaintProperty(ids[next], 'raster-opacity', isAir ? 0.78 : 0.82);
+      map.setPaintProperty(ids[front.current], 'raster-opacity', 0);
+      front.current = next;
+    });
+    // Paint the next step while this one shows, so the next cross-fade is ready in time.
+    if (playing && isAir && airq && airIndex !== null) void paint(airq[(airIndex + 1) % airq.length], layer, view);
+    else if (playing && !isAir && manifest?.weather && index !== null) {
       const ni = index + 1 >= frames.length ? 0 : index + 1;
       void loadFrame(manifest, ni).then((f) => {
-        const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 50));
-        idle(() => !cancelled && paint(f, layer));
+        if (!cancelled) void paint(f, layer, view);
       });
     }
     return () => {
@@ -700,7 +788,7 @@ export default function MapPage() {
     };
     // index and frames are read only to paint ahead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame, layer, ready, weather, base, paint]);
+  }, [frame, airFrame, isAir, layer, ready, weather, base, paint]);
 
   // The wind lines read the blend on every particle step, so they are never reset by a new frame.
   const windAt = useCallback((lat: number, lon: number): [number, number] | null => {
@@ -807,16 +895,34 @@ export default function MapPage() {
     });
     return out;
   }, [frames]);
+  const fmtAir = (i: number) => {
+    const f = airq?.[Math.round(i)];
+    return f ? new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(f.time) : '';
+  };
+  const airDays = useMemo(() => {
+    const out: number[] = [];
+    let last = -1;
+    (airq ?? []).forEach((f, i) => {
+      const d = f.time.getDate();
+      if (d !== last) {
+        out.push(i);
+        last = d;
+      }
+    });
+    return out;
+  }, [airq]);
   const fmtRadar = (i: number) => {
     const f = radar?.frames[Math.round(i)];
     return f ? new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(new Date(f.time * 1000)) : '';
   };
-  const unitOf: Record<FieldKind, string> = { wind: w.units.wind, gust: w.units.wind, temp: w.units.temp, precip: w.units.precip, cloud: w.units.cloud };
+  const unitOf: Record<FieldKind, string> = { wind: w.units.wind, gust: w.units.wind, temp: w.units.temp, precip: w.units.precip, cloud: w.units.cloud, aqi: 'AQI', pm25: w.units.ugm3, dust: w.units.ugm3 };
   const nfDose = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
   const readout = (() => {
     if (!hover || airCard) return null;
     const parts: string[] = [];
-    if (weather && frame && layer !== 'radar') parts.push(`${new Intl.NumberFormat(locale, { maximumFractionDigits: layer === 'precip' ? 1 : 0 }).format(fieldValue(frame, layer, hover.lat, hover.lon))} ${unitOf[layer]}`);
+    const shown = isAir ? airFrame : frame;
+    const value = weather && shown && layer !== 'radar' ? fieldValue(shown, layer, hover.lat, hover.lon) : Number.NaN;
+    if (Number.isFinite(value)) parts.push(`${new Intl.NumberFormat(locale, { maximumFractionDigits: layer === 'precip' ? 1 : 0 }).format(value)} ${unitOf[layer as FieldKind]}${isAir ? ` · ${w.model2}` : ''}`);
     if (dose !== null) parts.push(t.ukraine.radiationAt(nfDose.format(dose), t.ukraine.radiationLevel[dose < 0.3 ? 0 : dose < 1 ? 1 : 2]));
     return parts.length ? parts.join(' · ') : null;
   })();
@@ -866,7 +972,20 @@ export default function MapPage() {
             <Switch checked={ua.war} onChange={() => toggle('war')} label={t.ukraine.war} />
             <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} note={ua.radiation && zoom < 5 ? m.radiationZoom : undefined} />
             <div className="wm-sep" />
-            <Switch checked={weatherOver === 'on'} onChange={(on) => setWeatherOver(on ? 'on' : 'off')} label={m.weatherOver} />
+            {manifest?.airq && (
+              <Switch
+                checked={weatherOver === 'on' && isAir}
+                onChange={(on) => {
+                  setWeatherOver(on ? 'on' : 'off');
+                  setLayer(on ? 'aqi' : 'wind');
+                }}
+                label={m.airForecast}
+              />
+            )}
+            <Switch checked={weatherOver === 'on' && !isAir} onChange={(on) => {
+              setWeatherOver(on ? 'on' : 'off');
+              if (on && isAir) setLayer('wind');
+            }} label={m.weatherOver} />
           </div>
         )}
 
@@ -878,6 +997,17 @@ export default function MapPage() {
                 <span>{w.layers[l.id]}</span>
               </button>
             ))}
+            {manifest?.airq && (
+              <>
+                <p className="wm-group">{w.airGroup}</p>
+                {AIR_LAYERS.map((l) => (
+                  <button key={l.id} type="button" className="wm-layers__btn" aria-pressed={layer === l.id} onClick={() => setLayer(l.id)}>
+                    <Icon name={l.icon} size={20} />
+                    <span>{w.layers[l.id]}</span>
+                  </button>
+                ))}
+              </>
+            )}
             <label className="wm-layers__toggle">
               <input type="checkbox" checked={particles === 'on'} onChange={(e) => setParticles(e.target.checked ? 'on' : 'off')} />
               <span className="switch__track" aria-hidden="true" />
@@ -886,7 +1016,7 @@ export default function MapPage() {
           </div>
         )}
         <p className="wm-updated">
-          {weather ? w.model : WAQI_TOKEN ? m.sourcesUkraine.replace('SaveEcoBot', 'WAQI · SaveEcoBot') : m.sourcesUkraine}
+          {weather ? (isAir ? w.airSource : w.model) : WAQI_TOKEN ? m.sourcesUkraine.replace('SaveEcoBot', 'WAQI · SaveEcoBot') : m.sourcesUkraine}
           {manifest && ` · ${t.updated(ago(manifest.built, lang))}`}
         </p>
       </aside>
@@ -901,6 +1031,7 @@ export default function MapPage() {
 
       <div className="wm-legend">
         {weather && (layer === 'radar' ? <RadarLegend note={w.radarNote} /> : <FieldLegend kind={layer} />)}
+        {weather && isAir && <p className="wm-legend__note">{w.airNote}</p>}
         {uaMode && ua.radiation && <RadiationLegend />}
         {uaMode && ua.aqi && !weather && (
           <ul className="aqi-keys aqi-keys--row">
@@ -927,6 +1058,26 @@ export default function MapPage() {
             ) : (
               <span className="note">{t.loading}</span>
             )
+          ) : isAir ? (
+            airq && airIndex !== null ? (
+              <JellySlider
+                className="wm-timeline__slider"
+                min={0}
+                max={airq.length - 1}
+                value={airIndex}
+                onChange={(i) => {
+                  setPlaying(false);
+                  setAirIndex(i);
+                }}
+                label={w.layers[layer]}
+                format={fmtAir}
+                formatTick={(i) => new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric' }).format(airq[Math.round(i)].time)}
+                majors={airDays}
+                minorStep={1}
+              />
+            ) : (
+              <span className="note">{t.loading}</span>
+            )
           ) : frames.length && index !== null ? (
             <JellySlider
               className="wm-timeline__slider"
@@ -947,8 +1098,8 @@ export default function MapPage() {
             <span className="note">{manifest ? t.loading : t.noLive}</span>
           )}
           <div className="wm-timeline__when">
-            <strong>{layer === 'radar' ? (radarIndex !== null ? fmtRadar(radarIndex) : '') : index !== null ? fmtFrame(index) : ''}</strong>
-            {layer !== 'radar' && now !== null && index !== now && (
+            <strong>{layer === 'radar' ? (radarIndex !== null ? fmtRadar(radarIndex) : '') : isAir ? (airIndex !== null ? fmtAir(airIndex) : '') : index !== null ? fmtFrame(index) : ''}</strong>
+            {layer !== 'radar' && !isAir && now !== null && index !== now && (
               <button type="button" className="chip-btn" onClick={() => setIndex(now)}>
                 {w.now}
               </button>

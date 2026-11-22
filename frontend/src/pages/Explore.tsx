@@ -38,7 +38,9 @@ import { imageryDate, imageryYears, nearbyDates, variableById, type VariableId }
 import { isOld, mergeAir, type AirStation } from '../data/air';
 import { useWaqi, WAQI_TOKEN } from '../data/waqi';
 import { entryText, levelWord, loadColorMap, lookup, type ColorMap } from '../data/colormaps';
-import { loadAir, loadFires, loadFrame, nearestFrame, paintField, useLiveManifest, type AirPoint, type LiveFires, type WeatherFrame } from '../data/live';
+import { worldView } from '../data/field';
+import { paintFieldAsync } from '../data/fieldPainter';
+import { loadAir, loadFires, loadFrame, nearestFrame, useLiveManifest, type AirPoint, type LiveFires, type WeatherFrame } from '../data/live';
 import { PointIndex } from '../data/nearby';
 import {
   AQI_COLORS,
@@ -344,9 +346,31 @@ export default function Explore() {
     };
   }, [wantWeather, manifest]);
   const globeWind = useMemo<GlobeWind | null>(() => (state.wind && frame ? { key: frame.time.toISOString(), sample: frame.wind } : null), [state.wind, frame]);
-  const globeField = useMemo<GlobeField | null>(() => {
-    if (state.field === 'none' || !frame) return null;
-    return { canvas: paintField(frame, state.field, 'equirect', 1440), key: `${state.field}|${frame.time.toISOString()}`, opacity: state.field === 'cloud' ? 0.9 : 1 };
+  // The field is painted in a worker (about 150 ms of work), then copied onto a canvas for the globe.
+  const [globeField, setGlobeField] = useState<GlobeField | null>(null);
+  useEffect(() => {
+    if (state.field === 'none' || !frame) {
+      setGlobeField(null);
+      return;
+    }
+    const field = state.field;
+    let cancelled = false;
+    void paintFieldAsync(frame, field, worldView('equirect', 1440)).then((pic) => {
+      if (cancelled) return;
+      let canvas: HTMLCanvasElement;
+      if (pic instanceof HTMLCanvasElement) canvas = pic;
+      else {
+        canvas = document.createElement('canvas');
+        canvas.width = pic.width;
+        canvas.height = pic.height;
+        canvas.getContext('2d')!.drawImage(pic, 0, 0);
+        pic.close();
+      }
+      setGlobeField({ canvas, key: `${field}|${frame.time.toISOString()}`, opacity: field === 'cloud' ? 0.9 : 1 });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [state.field, frame]);
   // A data layer needs an evenly lit globe: the night side would hide it. Night lights are the
   // opposite: they read best over the dark planet. The chosen style comes back with no layer.

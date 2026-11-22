@@ -97,3 +97,34 @@ test.describe('on a phone', () => {
     await expect(page.locator('.wm-weather')).toBeVisible();
   });
 });
+
+for (const layer of ['Вітер', 'Дрібний пил PM2.5']) {
+  test(`forecast playback has no stalls: ${layer}`, async ({ page }) => {
+    // A frame of the field used to stall the map for about a second at every step.
+    await page.goto('/map?mode=weather');
+    await expect(page.locator('.wm-timeline__when')).toBeVisible({ timeout: 40_000 });
+    await page.getByText(layer, { exact: true }).click();
+    await page.waitForTimeout(3000);
+    await page.locator('.wm-timeline .play-btn').click();
+    const { fps, worst } = await page.evaluate(
+      () =>
+        new Promise<{ fps: number; worst: number }>((done) => {
+          const t0 = performance.now();
+          let n = 0;
+          let last = t0;
+          let worst = 0;
+          const tick = (t: number) => {
+            n++;
+            worst = Math.max(worst, t - last);
+            last = t;
+            if (t - t0 < 8000) requestAnimationFrame(tick);
+            else done({ fps: n / 8, worst });
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    console.log(`${layer}: ${fps.toFixed(0)} fps, longest frame ${worst.toFixed(0)} ms`);
+    expect(worst).toBeLessThan(400);
+    expect(fps).toBeGreaterThan(20);
+  });
+}
