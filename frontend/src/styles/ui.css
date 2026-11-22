@@ -4320,3 +4320,23 @@ details[open] > summary {
     border-left: 0;
   }
 }
+
+/* ---------- phones: the search row fits, hints clear the legend ---------- */
+
+@media (max-width: 720px) {
+  .topbar--three .search {
+    min-width: 0;
+  }
+
+  .weather-map--ukraine:not(:has(.wm-timeline)) .wm-hint,
+  .weather-map--ukraine:not(:has(.wm-timeline)) .pf {
+    bottom: calc(var(--gutter) + 96px);
+  }
+}
+
+@media (max-width: 480px) {
+  /* Enter searches too: the button would push the 3D / 2D switch off the screen. */
+  .topbar--three .search__go {
+    display: none;
+  }
+}

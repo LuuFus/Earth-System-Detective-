@@ -193,8 +193,9 @@ function leastSquares(xs: number[], ys: number[]) {
   const sse = residuals.reduce((a, r) => a + r * r, 0);
   const df = n - 2;
   const se = Math.sqrt(sse / df / sxx);
-  const olsT = olsSlope / se;
-  const olsP = studentTwoSided(olsT, df);
+  // Values exactly on a line leave no noise: any slope is then certain, a flat line is no trend.
+  const olsT = se > 0 ? olsSlope / se : olsSlope === 0 ? 0 : Math.sign(olsSlope) * Infinity;
+  const olsP = Number.isFinite(olsT) ? studentTwoSided(olsT, df) : 0;
   const r2 = syy > 0 ? 1 - sse / syy : 0;
   const residualSd = Math.sqrt(sse / df);
   let num = 0;

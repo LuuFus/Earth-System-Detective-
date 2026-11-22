@@ -40,6 +40,7 @@ export function CountrySearch({ onFound }: { onFound: (country: Country) => void
         id="country-search"
         className="search__input"
         type="search"
+        enterKeyHint="search"
         list="country-list"
         autoComplete="off"
         placeholder={t.explore.search.placeholder}

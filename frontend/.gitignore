@@ -25,3 +25,7 @@ dist-ssr
 
 # Hallmark lint screenshots
 .hallmark/shots
+
+# Playwright
+test-results/
+playwright-report/

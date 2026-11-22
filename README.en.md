@@ -2,141 +2,239 @@
 
 [Українська](README.md) | **English**
 
-A team of three students taking part in the NASA Space Apps Challenge 2026
-hackathon with Noosphere.
+**A living 3D Earth from NASA's open data: what is happening to the planet now, what has changed over
+decades, and what is happening in Ukraine.**
 
-**Earth System Detective** is our project for the challenge
-[Earth System Trend Detective](https://www.spaceappschallenge.org/2026/challenges/earth-system-trend-detective/):
-a 3D Earth where you pick a NASA variable and see what is changing, where, by how
-much, and whether the change is statistically significant.
-
-**Live site:** https://luufus.github.io/Earth-System-Detective-/
+**Live site:** https://luufus.github.io/Earth-System-Detective-/ · **Made by:** IT Detectives
+(Maksym Semenov and Anastasiia Chupyra)
 
 ![Home page: sunrise over Earth from the ISS](docs/screenshots/home.jpg)
 
-**Made by:** IT Detectives (Maksym Semenov and Anastasiia Chupyra).
+## About the project
 
-## Recent additions (November 2026)
+NASA's and other agencies' satellites measure air and ocean temperature, rain, snow and ice,
+vegetation, air pollution, fires and city lights at night every day. The data are open, but scattered
+across dozens of archives, formats and services, and hard for most people to reach. **Earth System
+Detective** brings them together on an interactive globe and a 2D map that simply open in a browser.
 
-- A Google Earth-style redesign with spring animations, a relief map style and the real Sun (night
-  side with city lights).
-- **Fires**: every fire of the last 48 hours (NASA FIRMS: VIIRS and MODIS) and big fires replayed day
-  by day.
-- **Ukraine**: air quality, Safecast radiation, the DeepState front line with its history, occupied
-  communities and a before/after blackout comparison, on the globe and on a 2D map (`/map?mode=ukraine`).
-- **Weather** (`/map?mode=weather`): wind lines, gusts, temperature, rain and snow, cloud, radar and a
-  72-hour NOAA GFS forecast that plays smoothly.
-- **Air quality worldwide** from WAQI (with a free token), SaveEcoBot and Sensor.Community, with the
-  AQI in each bubble and a card with the place and what the data show nearby.
-- 20+ layers on shelves, a legend for each and the value under the pointer; events with photos and
-  "what happened / why / who or what caused it / what can be done".
-- Home page section "About": what the site is, why, what it can do, and who made it.
+On the site you can:
 
-## What is here
+- **see** the Earth as satellites see it: 20+ NASA data layers, the real Sun and the night side with
+  city lights, every fire of the last 48 hours, wind and the weather forecast;
+- **check** whether a change is real: the site computes trends straight from NASA data with
+  statistical tests (Mann-Kendall and Sen's slope) and says in plain words what changed, by how much,
+  and whether it is significant;
+- **compare** two countries, two regions or two years;
+- **find out** what is happening in Ukraine: air quality, the front line, occupied communities,
+  radiation, fires and blackouts after the strikes on the power grid;
+- **understand** events: what happened, why, who or what caused it and what can be done.
 
-### Home page
+### Why
 
-First screen: NASA footage (sunrise over Earth from the ISS, Earth by day and by night, the PACE
-satellite being built and launched), the headline and buttons into the 3D Earth, weather, fires and
-Ukraine. Below it, "About": what the site is, why, eight features with links, how the data update,
-who it is for and the authors. Ukrainian and English.
+News about climate and the environment often says "it got worse" without numbers or sources. We
+wanted anyone — a pupil, a teacher, a journalist, a volunteer — to be able to open the data
+themselves, see what is happening, where and by how much, and tell a real trend from chance. So the
+site follows three rules:
 
-### 3D Earth (`/explore`): the "Studio"
+1. **Open data only**, with the source named next to every layer, event and number.
+2. **Nothing made up.** Where there is no data, the site says so; it names only causes visible in the
+   data (wind, rain, fires nearby, the CAMS model).
+3. **Numbers with a check.** A trend is shown together with whether it is statistically significant.
 
-![3D Earth](docs/screenshots/globe.jpg)
+### History
 
-Tools on the left: **Layers, Cases, Analysis, Weather, Glossary, Share**; a
-timeline with Play at the bottom; the analysis drawer on the right.
+The project started at the **NASA Space Apps Challenge 2026** hackathon (challenge
+[Earth System Trend Detective](https://www.spaceappschallenge.org/2026/challenges/earth-system-trend-detective/),
+hosted locally by Noosphere) as a globe of temperature trends. Since then we have kept developing it
+for ourselves: fires, Ukraine, weather, air quality, events and a new design.
 
-- **Rotate and zoom** with the mouse, wheel or fingers, down to about 95 km.
-  Up close the globe loads sharp NASA GIBS imagery for the visible area (Blue
-  Marble 500 m, then Landsat 30 m).
-- **Country search**: type "Ukraine", "Japan" or "Японія" and the camera flies
-  there.
-- **Borders and names**: crisp white borders with a dark halo (readable on any
-  imagery and at any zoom), coastlines, country names, **capitals** as small
-  dots, **oceans and seas** and **rivers** with names in Ukrainian or English.
-  Borders follow Ukraine's point of view: Crimea is part of Ukraine. Data:
-  Natural Earth.
+## Contents
 
-![Europe with borders, capitals, seas and rivers](docs/screenshots/map-labels.jpg)
+- [3D Earth and layers](#3d-earth-and-layers)
+- [The real Sun, night and blackout](#the-real-sun-night-and-blackout)
+- [Fires](#fires)
+- [Map of Ukraine](#map-of-ukraine)
+- [Weather forecast](#weather-forecast)
+- [Trend analysis and comparison](#trend-analysis-and-comparison)
+- [Events](#events)
+- [Home page and phone](#home-page-and-phone)
+- [How it works](#how-it-works)
+- [Run it](#run-it)
+- [Data sources](#data-sources)
 
-- **Values under the pointer**: the coordinates plus temperature, humidity,
-  precipitation and wind from NASA POWER for the month and year on the
-  timeline, over land and ocean.
+The screenshots show the Ukrainian interface; the site switches to English with one button.
 
-![NASA POWER values under the pointer over the Atlantic](docs/screenshots/readout.jpg)
+## 3D Earth and layers
 
-- **NASA data layers**: GISTEMP temperature anomaly (1880-2025), air
-  temperature, precipitation, soil moisture and humidity (NASA POWER), the ozone
-  hole, and over Ukraine NO₂, vegetation, land surface temperature and fires;
-  GIBS imagery for night lights and true colour. A separate layer shows the
-  occupation and hostilities in Ukraine from the official list.
-- **Hints**: red map pins mark notable events (Kakhovka, the Aral Sea, the
-  Chornobyl zone fires and more); the card says what happened and links NASA.
+![3D Earth with the sea temperature layer and the layer shelves](docs/screenshots/layers.jpg)
 
-### Comparing regions and countries
+The main screen (`/explore`) is a Three.js globe with NASA GIBS satellite imagery and relief. On the
+left, a tool column: **Layers, Fires, Ukraine, Weather, Analysis, Events, Glossary, Share**; in the
+middle, country search and a 3D / 2D switch; at the bottom, a timeline.
 
-Click any place (region A) and add region B, or pick **whole countries**: type
-a name or switch "A click on the globe picks: A country". The countries are
-outlined on the globe and the numbers come only from inside their borders. The
-drawer says in plain words what changed and by how much, shows a reliability
-light (the Mann-Kendall test), the rate of change (Theil-Sen slope) and which
-one changes faster.
+- **20+ NASA layers on shelves**: temperature (GISTEMP anomaly since 1880, air, land surface, sea),
+  water (GPM and MERRA-2 rain, water vapour, humidity, soil moisture, snow, sea ice), air (nitrogen
+  dioxide, ozone, carbon monoxide, dust, aerosols, wind), land (NDVI vegetation, land cover, fires),
+  people (night lights, population density).
+- **Layer hints**: each layer has a scale with numbers and units and an explanation of the colours;
+  the pointer shows the value at a place in words.
+- **Year player**: "From" — the year to play from to the latest; the bottom bar folds away.
+- **Zoom to street level**: close up the globe loads a sharper image of the visible area, and gaps
+  between satellite passes are filled from neighbouring values, so layers do not break into "pixels".
+- **Borders and names**: country borders (Crimea as part of Ukraine), capitals, seas, rivers.
 
-![Ukraine against Poland: air temperature 1981-2025](docs/screenshots/countries.jpg)
+![The NO₂ value under the pointer, local time and the temperature now](docs/screenshots/readout.jpg)
 
-### Years, months, days, and a chart you can stretch
+**Under the pointer**, anywhere on Earth: the place, the temperature now (NOAA GFS), wind, local time,
+the value of the layer that is on, fires and air quality nearby, and the nearest event.
 
-Chart views: **years**, **months**, **days** (daily NASA POWER data) or the
-**seasonal cycle**. For months and days the trend is checked with the seasonal
-Mann-Kendall test. The chart zooms with the wheel or buttons, pans with the
-mouse, has a navigator strip below, a dot per value and a full-screen mode.
+## The real Sun, night and blackout
 
-![Monthly temperature of Ukraine and Poland, zoomed to 1995-2011](docs/screenshots/chart-months.jpg)
+![The real Sun: the day-night line and city lights on the night side](docs/screenshots/night.jpg)
 
-### "How it is computed"
+Three lighting styles: **even**, **the real Sun now** (the night side with NASA Black Marble city
+lights) and **the whole planet at night**.
 
-For each method: where it shows on screen, plain words, the formula, and the
-same arithmetic on your data: how many pairs of years went up and down, S,
-Var(S), Z, p, the slope, its confidence interval, and how many years a
-conclusion needs.
+![Blackout: Ukraine at night before and after the strikes on the power grid](docs/screenshots/blackout.jpg)
 
-![The Mann-Kendall test on Ukraine's data](docs/screenshots/methods.jpg)
+**Blackout**: Ukraine at night on 3 October 2021 and on 25 November 2022 (after massive strikes on the
+power grid) under a before/after slider.
 
-### Weather and hazards
+## Fires
 
-For any place: a 7-day forecast (rain, thunderstorms, gusts), the official
-**tornado** probability from the NOAA Storm Prediction Center (USA only: there
-are no official odds elsewhere, so we do not make them up), and how often rain,
-heat, frost or strong wind happen there from NASA POWER, 1981-2000 against
-2006-2025, with a Mann-Kendall trend test.
+![Every fire of the last 48 hours: Africa in the dry season](docs/screenshots/fires.jpg)
 
-![Weather for New York: forecast and NOAA tornado outlook](docs/screenshots/weather.jpg)
+- **Fires now**: every detection of the last 48 hours from NASA FIRMS — VIIRS (NOAA-20, NOAA-21,
+  Suomi NPP satellites, 375 m) and MODIS (Terra, Aqua, 1 km). The colour shows how many hours ago the
+  fire was seen. Updated every hour; NASA publishes detections about 1–3 hours after the overpass.
+- **Ukraine over 7 days**: the number of fires and a chart by day.
+- **Big fires day by day**: the Chornobyl zone (April 2020), Luhansk region (September–October 2020),
+  the front (2022), Evia and Turkey (2021), Quebec (2023). You see fire flare up, smoulder and leave a
+  burn scar.
 
-### Surface temperature layer (NASA GISTEMP v4)
+![The Chornobyl zone fire, April 2020](docs/screenshots/fire-story.jpg)
 
-Temperature anomalies against 1951-1980 on a 2°×2° grid, 1880-2025.
+## Map of Ukraine
 
-- **Year**: the anomaly for the chosen year.
-- **Compare**: the difference between two years, for example 2025 minus 1960.
-- **Trend**: the rate of change in every cell (°C per decade, Theil-Sen slope)
-  with a Mann-Kendall significance test. Cells that are not significant
-  (p ≥ 0.05) are hatched.
+![Map of Ukraine: air quality, fires, the front line](docs/screenshots/ukraine-map.jpg)
 
-![Temperature difference: 2025 minus 1960](docs/screenshots/compare.jpg)
+A separate 2D map (`/map?mode=ukraine`, MapLibre): Ukraine highlighted, its neighbours dimmed (zoomed
+out to the world the dimming fades). Map styles: relief, satellite, OpenStreetMap.
 
-![Trend 1960-2025 with significance](docs/screenshots/trend.jpg)
+- **Air quality**: the AQI (US EPA scale) inside each bubble, coloured from "good" to "hazardous".
+  Data from SaveEcoBot, Sensor.Community open sensors and, with a token, the World Air Quality Index
+  (WAQI). Readings older than 3 hours are drawn faded.
+- **Station card**: the district (OpenStreetMap), the main pollutant, PM2.5, PM10, NO₂, O₃, SO₂ and CO
+  sub-indices, and what the data show nearby: fires, still air, rain, humidity, dust and gases from
+  the Copernicus CAMS model.
+- **The DeepState front line** with its history since April 2022; **occupied communities** from the
+  official list of Ukraine's Ministry of Development; **radiation** from Safecast in µSv/h; **fires**
+  from NASA FIRMS.
+- The **weather forecast** can go over the map.
 
-### Other tools
+![Station card: the main pollutant and what is nearby](docs/screenshots/air-card.jpg)
 
-From the analysis drawer the same region opens in NASA Worldview, Giovanni,
-Earthdata Search and the CUAHSI hydrology services (HydroShare, HydroClient),
-or downloads as a NASA POWER CSV.
+## Weather forecast
 
-### On a phone
+![Weather forecast: animated wind over Europe](docs/screenshots/weather-wind.jpg)
 
-![Mobile: home and the 3D Earth with the temperature layer](docs/screenshots/mobile.jpg)
+A map in the spirit of Windy (`/map?mode=weather`): the American **NOAA GFS** model's forecast 72
+hours ahead in 3-hour steps.
+
+- Layers: animated **wind** lines, **gusts**, **temperature**, **rain and snow**, **cloud** and the
+  RainViewer **precipitation radar** for the last two hours.
+- **Forecast player**: the wind flows smoothly between steps and the colour layer cross-fades.
+- **Forecast at a point**: click anywhere for hourly temperature and rain and the strongest wind
+  (Open-Meteo).
+- On the 3D Earth, the Weather section gives a 7-day forecast anywhere, the tornado probability from
+  the NOAA Storm Prediction Center (US only: there is no other official data) and "how often it
+  happens here" for rain, heat, frost or strong wind in 1981–2000 versus 2006–2025.
+
+![Temperature forecast and the forecast at a point](docs/screenshots/weather-temp.jpg)
+
+## Trend analysis and comparison
+
+![Analysis: air temperature in Ukraine, the 1960–2025 trend](docs/screenshots/trends.jpg)
+
+Pick a country, a region or a point (region A), and the Analysis panel shows the data series and
+checks it for a trend.
+
+- **Mann-Kendall test**: whether the change is statistically significant (a reliability traffic
+  light); the seasonal version for months and days.
+- **Sen's (Theil-Sen) slope**: how fast the change goes, with a confidence interval.
+- **Chart views**: years, months, days (daily NASA POWER data) and the seasonal cycle; the chart
+  zooms, pans, goes full screen and saves as an image or CSV.
+- **Comparison**: add region B — two countries or regions on one chart, and which changes faster.
+  Countries are outlined on the globe, and the numbers are computed inside their borders only.
+- **"How it is computed"**: for each method, a plain explanation, the formula and the same
+  computation on your data (S, Var(S), Z, p, slope, interval).
+- **GISTEMP layer**: the temperature anomaly for a year, the difference between two years and the
+  trend in each 2°×2° cell since 1880; non-significant cells are hatched.
+- The same region opens in NASA Worldview, Giovanni, Earthdata Search and CUAHSI services
+  (HydroShare, HydroClient).
+
+![Comparison: Ukraine and Poland on one chart](docs/screenshots/compare.jpg)
+
+## Events
+
+![The list of events with photos](docs/screenshots/events.jpg)
+
+Events visible from space: fires, deforestation, droughts, floods, melting ice, volcanoes, air
+pollution, heat, war. On the globe they are markers by category; in the Events section, a list with
+photos. Pick one and the camera flies there and turns on the right layer. Each says **what happened,
+why, who or what caused it and what can be done**, with Wikimedia Commons photos (authors and
+licences given) and links to sources.
+
+![An event card: the drying of the Aral Sea](docs/screenshots/event.jpg)
+
+## Home page and phone
+
+![The About section on the home page: a screenshot and a description of each part](docs/screenshots/about.jpg)
+
+Home: NASA footage (sunrise over Earth from the ISS, Earth by day and by night, the PACE launch),
+buttons into the 3D Earth, weather, fires and Ukraine, and below them "About": what the site is, why,
+how to start, each part with a screenshot, how the data update, who it is for and the authors. The
+**Sources** button lists every data source. The site works in Ukrainian and English, and on phones.
+
+| Home | Map of Ukraine | 3D Earth |
+|---|---|---|
+| ![Home on a phone](docs/screenshots/mobile-home.jpg) | ![Map of Ukraine on a phone](docs/screenshots/mobile-map.jpg) | ![3D Earth on a phone](docs/screenshots/mobile-globe.jpg) |
+
+## How it works
+
+**Browser** (`frontend/`): React 19, TypeScript and Vite.
+
+- **Globe**: Three.js with custom shaders — day and night by the real position of the Sun, relief,
+  atmosphere. NASA GIBS imagery loads in tiles, with a separate sharp patch for the visible area close
+  up.
+- **2D map**: MapLibre GL; wind and station bubbles are drawn on their own canvases over the map.
+- **Analysis**: statistics in the browser — Mann-Kendall tests (plain and seasonal), the Theil-Sen
+  slope with a confidence interval.
+- Animations: springs from the design system (Jelly slider, Stat card).
+
+**Data** (`data-pipeline/`, Python): some servers do not serve browsers on other sites, so scripts
+collect the data and publish it as files.
+
+- `build_live.py` — the NOAA GFS forecast (its own GRIB2 reader, no ecCodes), NASA FIRMS fires (VIIRS
+  and MODIS), Sensor.Community sensors with a filter for broken ones (readings many times above their
+  neighbours) and the AQI on the US EPA 2024 scale. The data are compressed so the site loads faster.
+- `build_fire_stories.py` — big fires from the FIRMS archives.
+- Other scripts prepare GISTEMP, the ozone hole, NO₂ and MODIS over Ukraine, occupied communities,
+  Natural Earth borders and names.
+
+Everything else the browser fetches directly: NASA GIBS and POWER, Open-Meteo and Copernicus CAMS,
+SaveEcoBot, WAQI, RainViewer, DeepState, Safecast, OpenStreetMap Nominatim, Wikimedia Commons.
+
+### How the data update
+
+| What | Source | How often |
+|---|---|---|
+| Fires, last 48 hours | NASA FIRMS (VIIRS, MODIS) | every hour |
+| Weather forecast | NOAA GFS 1° | every hour (new runs every 6 hours) |
+| Air quality | SaveEcoBot, Sensor.Community, WAQI | every hour |
+| Precipitation radar | RainViewer | every few minutes |
+| Front line | DeepState | as soon as a change is published |
+| NASA layers and series | GIBS, POWER, GISTEMP | as new months come out |
 
 ## Run it
 
@@ -148,7 +246,7 @@ npm run dev
 
 The browser opens by itself. While `npm run dev` runs, the server refreshes fires and air every hour
 (and the GFS forecast once it is over 6 hours old) by running `data-pipeline/build_live.py` (Python
-with numpy).
+with numpy). By hand: `npm run live`.
 
 **WAQI air quality.** Get a free token at https://aqicn.org/data-platform/token/ and put it in
 `frontend/.env.local` (kept out of git):
@@ -157,12 +255,12 @@ with numpy).
 VITE_WAQI_TOKEN=your_token
 ```
 
-For the GitHub Pages site, add the same token as the repository secret `WAQI_TOKEN`. Without a
-token the site uses SaveEcoBot and Sensor.Community.
+For the GitHub Pages site, add the same token as the repository secret `WAQI_TOKEN`
+(Settings → Secrets and variables → Actions). Without a token the site uses SaveEcoBot and
+Sensor.Community.
 
-Code, data and how to refresh GISTEMP are in
-[`frontend/README.en.md`](frontend/README.en.md); colours, type and components in
-[`DESIGN.md`](DESIGN.md).
+Code, data and how to refresh GISTEMP are in [`frontend/README.en.md`](frontend/README.en.md);
+colours, type and components in [`DESIGN.md`](DESIGN.md).
 
 ## Deployment
 
@@ -174,18 +272,27 @@ collected, the site is built and published to the `gh-pages` branch, which GitHu
 
 | Path | What |
 |---|---|
-| `frontend/` | React + TypeScript + Vite app, Three.js globe |
-| `data-pipeline/` | Python scripts that turn NASA datasets into files for the site |
+| `frontend/src/components/` | Globe, map, panels, cards |
+| `frontend/src/pages/` | Pages: home, 3D Earth (`Explore`), 2D map (`WeatherMap`) |
+| `frontend/src/data/` | Loading and processing data in the browser |
+| `frontend/src/analysis/` | Statistics: Mann-Kendall, Sen's slope, data series |
+| `frontend/src/i18n/` | Ukrainian and English text |
+| `frontend/public/data/` | Prepared data: GISTEMP, borders, fire stories |
+| `data-pipeline/` | Python scripts that collect and prepare data |
 | `docs/screenshots/` | Screenshots for this README |
 | `DESIGN.md` | Design system: colours, type, components |
 
 ## Data sources
 
-NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI,
-MODIS, NASA FIRMS, NASA Black Marble, NASA Image and Video Library, NASA JSC Crew Earth
-Observations; NOAA GFS; RainViewer; Natural Earth maps (public domain) and OpenStreetMap (ODbL);
-Open-Meteo forecasts; NOAA Storm Prediction Center tornado outlooks; DeepState; SaveEcoBot;
-Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0); Copernicus CAMS via Open-Meteo;
-photos from Wikimedia Commons. Made by IT Detectives (Maksym Semenov and Anastasiia Chupyra), built
-with Claude (Anthropic). This is not an official NASA website, and NASA does not
-endorse the project.
+NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI, MODIS, NASA FIRMS,
+NASA Black Marble, NASA Image and Video Library, NASA JSC Crew Earth Observations; NOAA GFS; NOAA
+Storm Prediction Center; RainViewer; Open-Meteo; Copernicus CAMS via Open-Meteo; DeepState;
+SaveEcoBot; Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0); the list of occupied
+communities from Ukraine's Ministry of Development; Natural Earth maps (public domain) and
+OpenStreetMap (ODbL); photos from Wikimedia Commons (authors and licences in the event cards).
+
+## Authors
+
+**IT Detectives** — Maksym Semenov and Anastasiia Chupyra. Built with Claude (Anthropic).
+
+This is not an official NASA website, and NASA does not endorse the project.

@@ -23,9 +23,20 @@ confidence). Plus fires per day in Ukraine for the last 7 days.
 Air: PM2.5 and PM10 from Sensor.Community's open citizen sensors (hourly means, outdoor only),
 with the US EPA Air Quality Index computed from them (2024 breakpoints), as air.json.
 
+Air forecast: the CAMS European air quality model (Copernicus) through Open-Meteo, 4 days ahead
+every 3 hours on a 0.5° grid over Ukraine and its neighbours (43-55° N, 20-42° E): US AQI, PM2.5
+and dust. A model, not measurements: it fills the places without stations and shows where smoke
+and dust are going. The model runs once or twice a day, so the grid is fetched again only when
+the published one is over 11 hours old (it is taken back from the live site otherwise, as the
+GitHub Action starts with no files). One byte per value, 255 = no value:
+    aqi    US AQI, byte * 2
+    pm25   PM2.5, (byte / 11)^2 ug/m3
+    dust   dust, (byte / 5.6)^2 ug/m3
+Arrays [time][variable][row north to south][column west to east].
+
 Binary files are zlib-compressed (the site inflates them with DecompressionStream).
 
-Output: frontend/public/data/live/manifest.json, weather/fNNN.bin, fires.bin, air.json
+Output: frontend/public/data/live/manifest.json, weather/fNNN.bin, fires.bin, air.json, airq.bin
 """
 
 from __future__ import annotations
@@ -39,6 +50,7 @@ import math
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 from pathlib import Path
@@ -403,11 +415,108 @@ def build_air(now: dt.datetime) -> dict:
     }
 
 
+# ---------- air quality forecast (CAMS through Open-Meteo) ----------
+
+OPEN_METEO_AQ = "https://air-quality-api.open-meteo.com/v1/air-quality"
+AQ_NORTH, AQ_WEST, AQ_STEP, AQ_NI, AQ_NJ = 55.0, 20.0, 0.5, 45, 25
+AQ_VARS = [("aqi", "us_aqi"), ("pm25", "pm2_5"), ("dust", "dust")]
+AQ_MAX_AGE_H = 11
+LIVE_SITE = "https://luufus.github.io/Earth-System-Detective-/data/live/"
+
+
+def aq_byte(name: str, v) -> int:
+    if v is None or not math.isfinite(v) or v < 0:
+        return 255
+    if name == "aqi":
+        b = v / 2
+    elif name == "pm25":
+        b = math.sqrt(v) * 11
+    else:
+        b = math.sqrt(v) * 5.6
+    return int(min(254, round(b)))
+
+
+def reuse_airq(now: dt.datetime, manifest: dict) -> dict | None:
+    """The published forecast, if it is still fresh: from this folder, or else from the live site."""
+    def fresh(m: dict | None) -> bool:
+        if not m:
+            return False
+        built = dt.datetime.fromisoformat(m["built"].replace("Z", "+00:00"))
+        return (now - built).total_seconds() < AQ_MAX_AGE_H * 3600
+
+    local = manifest.get("airq")
+    if fresh(local) and (OUT / local["file"]).exists():
+        return local
+    try:
+        remote = json.loads(get(LIVE_SITE + "manifest.json", tries=2, timeout=30)).get("airq")
+        if fresh(remote):
+            (OUT / remote["file"]).write_bytes(get(LIVE_SITE + remote["file"], tries=2, timeout=60))
+            print("  air forecast: the published one is fresh, reused")
+            return remote
+    except Exception as e:
+        print(f"  air forecast: could not reuse the published one ({e})")
+    return None
+
+
+def build_airq(now: dt.datetime, manifest: dict) -> dict:
+    print("Air quality forecast (CAMS Europe via Open-Meteo)")
+    kept = reuse_airq(now, manifest)
+    if kept:
+        return kept
+    points = [(AQ_NORTH - j * AQ_STEP, AQ_WEST + i * AQ_STEP) for j in range(AQ_NJ) for i in range(AQ_NI)]
+    hourly = [None] * len(points)
+    times: list[str] | None = None
+    batch = 75
+    for start in range(0, len(points), batch):
+        chunk = points[start : start + batch]
+        query = urllib.parse.urlencode({
+            "latitude": ",".join(f"{lat:.2f}" for lat, _ in chunk),
+            "longitude": ",".join(f"{lon:.2f}" for _, lon in chunk),
+            "hourly": ",".join(v for _, v in AQ_VARS),
+            "domains": "cams_europe",
+            "forecast_days": 4,
+            "timezone": "GMT",
+        })
+        data = json.loads(get(f"{OPEN_METEO_AQ}?{query}", tries=5, timeout=120))
+        if isinstance(data, dict):
+            data = [data]
+        for k, d in enumerate(data):
+            hourly[start + k] = d["hourly"]
+            times = times or d["hourly"]["time"]
+        # Each location may count as a call: stay well under 600 calls a minute.
+        time.sleep(9)
+    assert times is not None
+    # Every third hour from the last full 3-hour step before now.
+    first = now.replace(minute=0, second=0, microsecond=0) - dt.timedelta(hours=now.hour % 3)
+    keep = [k for k, t in enumerate(times) if k % 3 == 0 and dt.datetime.fromisoformat(t).replace(tzinfo=dt.timezone.utc) >= first]
+    size = AQ_NI * AQ_NJ
+    out = np.full((len(keep), len(AQ_VARS), size), 255, dtype=np.uint8)
+    for f, k in enumerate(keep):
+        for vi, (name, key) in enumerate(AQ_VARS):
+            for p, h in enumerate(hourly):
+                out[f, vi, p] = aq_byte(name, h[key][k])
+    (OUT / "airq.bin").write_bytes(zlib.compress(out.tobytes(), 9))
+    filled = float((out[:, 0] != 255).mean())
+    print(f"  {len(keep)} frames, {size} cells, {filled:.0%} with values")
+    return {
+        "source": "CAMS European air quality forecasts (Copernicus Atmosphere Monitoring Service), via Open-Meteo",
+        "url": "https://open-meteo.com/en/docs/air-quality-api",
+        "licence": "CC BY 4.0",
+        "built": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "file": "airq.bin",
+        "compression": "deflate",
+        "grid": {"north": AQ_NORTH, "west": AQ_WEST, "step": AQ_STEP, "ni": AQ_NI, "nj": AQ_NJ},
+        "vars": [name for name, _ in AQ_VARS],
+        "times": [times[k] + ":00Z" if len(times[k]) == 16 else times[k] for k in keep],
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-gfs", action="store_true", help="skip the weather forecast")
     ap.add_argument("--no-fires", action="store_true", help="skip the fires")
     ap.add_argument("--no-air", action="store_true", help="skip the air sensors")
+    ap.add_argument("--no-airq", action="store_true", help="skip the air quality forecast")
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now(dt.timezone.utc)
@@ -429,6 +538,11 @@ def main() -> None:
             manifest["air"] = build_air(now)
         except Exception as e:
             failures.append(f"air: {e}")
+    if not args.no_airq:
+        try:
+            manifest["airq"] = build_airq(now, manifest)
+        except Exception as e:
+            failures.append(f"air forecast: {e}")
     manifest["built"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     for f in failures:

@@ -344,7 +344,10 @@ export default function MapPage() {
     if (map.getLayer('ua-mask')) map.setLayoutProperty('ua-mask', 'visibility', uaMode ? 'visible' : 'none');
     if (uaMode && !flewTo.current) {
       flewTo.current = true;
-      map.fitBounds(UKRAINE_BOUNDS, { padding: { top: 90, bottom: 40, left: 40, right: 320 }, duration: 900 });
+      // Room for the panel on the right; on a phone the panel sits on top, the timeline below.
+      const narrow = map.getContainer().clientWidth < 720;
+      const padding = narrow ? { top: 190, bottom: 130, left: 16, right: 16 } : { top: 90, bottom: 40, left: 40, right: 320 };
+      map.fitBounds(UKRAINE_BOUNDS, { padding, duration: 900 });
     }
   }, [uaMode, base]);
 
