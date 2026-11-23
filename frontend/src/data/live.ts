@@ -60,7 +60,9 @@ let manifestCache: { at: number; promise: Promise<LiveManifest> } | null = null;
 /** The manifest, fetched again at most once a minute. */
 export function loadManifest(force = false): Promise<LiveManifest> {
   const now = Date.now();
-  if (!force && manifestCache && now - manifestCache.at < 60_000) return manifestCache.promise;
+  // A forced check still shares a request made a moment ago: every page part that shows live data
+  // asks at once, and they would otherwise fetch the same file several times.
+  if (manifestCache && now - manifestCache.at < (force ? 5_000 : 60_000)) return manifestCache.promise;
   const promise = fetch(`${BASE}manifest.json?m=${Math.floor(now / 60_000)}`, { cache: 'no-store' }).then((r) => {
     if (!r.ok) throw new Error(`manifest ${r.status}`);
     return r.json() as Promise<LiveManifest>;

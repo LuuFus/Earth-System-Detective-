@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Answer } from '../data/ask';
 import { useMyCity } from '../data/city';
-import { useLiveManifest } from '../data/live';
+import { ago, useLiveManifest } from '../data/live';
+import { radBand, radLabel } from '../data/radiation';
 import { aqiBand } from '../data/ukraine';
 import { useI18n } from '../i18n/I18n';
 import { useLiveText } from '../i18n/live';
@@ -116,6 +117,10 @@ function AnswerView({ a, onGo }: { a: Answer; onGo: () => void }) {
       text = a.model !== null ? t.airModel(a.place.name, Math.round(a.model), t.bands[aqiBand(a.model)]) : t.airNoModel(a.place.name);
       if (a.measured) text += ` ${t.airMeasured(a.measured.name, n0.format(a.measured.km), Math.round(a.measured.aqi))}`;
       source = t.sourceAir;
+      break;
+    case 'radiation':
+      text = a.usv !== null ? t.radiation(a.place.name, radLabel(a.usv, lang), t.radBands[radBand(a.usv)], n0.format(a.km ?? 0), a.time ? ago(a.time, lang) : '') : t.noRadiation(a.place.name);
+      source = t.sourceRadiation;
       break;
     case 'fires':
       text = a.count ? t.fires(a.place.name, a.count, a.km, a.nearestKm !== null ? n0.format(a.nearestKm) : '') : t.noFires(a.place.name, a.km);

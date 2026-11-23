@@ -288,9 +288,3 @@ export function loadStory(story: FireStory): Promise<StoryPoints> {
   }
   return p;
 }
-
-// ---------- radiation (Safecast) ----------
-
-/** Safecast's map of every published measurement (CC0), as Web Mercator tiles. */
-export const SAFECAST_TILES = 'https://s3.amazonaws.com/te512.safecast.org/{z}/{x}/{y}.png';
-export const SAFECAST_URL = 'https://map.safecast.org/';

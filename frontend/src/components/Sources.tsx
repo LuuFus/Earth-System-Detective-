@@ -30,11 +30,10 @@ const GROUPS: { id: 'nasa' | 'weather' | 'ukraine' | 'maps'; items: Item[] }[] =
     id: 'ukraine',
     items: [
       { name: 'DeepState', what: { uk: 'Карта фронту та її історія', en: 'Front-line map and its history' }, url: 'https://deepstatemap.live/' },
-      { name: 'SaveEcoBot', what: { uk: 'Якість повітря зі станцій в Україні', en: 'Air quality from stations in Ukraine' }, url: 'https://www.saveecobot.com/' },
+      { name: 'SaveEcoBot', what: { uk: 'Якість повітря й радіаційний фон зі станцій в Україні', en: 'Air quality and background radiation from stations in Ukraine' }, url: 'https://www.saveecobot.com/' },
       { name: 'Sensor.Community', what: { uk: 'Відкриті громадські датчики пилу по всьому світу', en: 'Open citizen dust sensors worldwide' }, url: 'https://sensor.community/' },
       { name: 'World Air Quality Index (WAQI)', what: { uk: 'Якість повітря з офіційних станцій світу, щогодини', en: 'Air quality from official stations worldwide, hourly' }, url: 'https://waqi.info/' },
       { name: 'Copernicus CAMS (Open-Meteo)', what: { uk: 'Модель якості повітря: прогноз на 3 дні, шари AQI, PM2.5 і пилу (CC BY 4.0)', en: 'Air quality model: 3-day forecast, AQI, PM2.5 and dust layers (CC BY 4.0)' }, url: 'https://open-meteo.com/en/docs/air-quality-api' },
-      { name: 'Safecast', what: { uk: 'Вимірювання радіації (CC0)', en: 'Radiation measurements (CC0)' }, url: 'https://safecast.org/' },
       { name: 'Мінрозвитку України', what: { uk: 'Перелік окупованих громад (наказ № 376)', en: 'List of occupied communities (Order No. 376)' }, url: 'https://zakon.rada.gov.ua/laws/show/z0380-25' },
       { name: 'NASA Earth Observatory', what: { uk: 'Знімки Landsat Каховського водосховища до і після', en: 'Landsat images of the Kakhovka reservoir before and after' }, url: 'https://science.nasa.gov/earth/earth-observatory/canals-in-ukraine-are-drying-up-151622/' },
       { name: 'CEOBS', what: { uk: 'Аналіз шкоди довкіллю: Каховка, Азовсталь', en: 'Environmental damage analysis: Kakhovka, Azovstal' }, url: 'https://ceobs.org/' },

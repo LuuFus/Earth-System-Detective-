@@ -6,7 +6,7 @@
 import type { Photo } from './photos';
 import type { Text } from './variables';
 
-export type Source = { name: string; url: string };
+export type Source = { name: string | Text; url: string };
 export type Fact = { text: Text; source: Source };
 export type Shot = { src: string; date: Text };
 export type BeforeAfter = { title: Text; before: Shot; after: Shot; credit: Text };
@@ -34,14 +34,14 @@ const S = {
   ceobsKakhovka: { name: 'CEOBS', url: 'https://ceobs.org/analysing-the-environmental-consequences-of-the-kakhovka-dam-collapse/' },
   unep: { name: 'UNEP', url: 'https://www.unep.org/resources/report/rapid-environmental-assessment-kakhovka-dam-breach-ukraine-2023' },
   yale: { name: 'Yale Environment 360', url: 'https://e360.yale.edu/digest/ukraine-dam-agriculture-environment' },
-  wna: { name: 'World Nuclear Association (за даними МАГАТЕ)', url: 'https://world-nuclear.org/information-library/country-profiles/countries-t-z/ukraine-russia-war-and-nuclear-energy' },
+  wna: { name: { uk: 'World Nuclear Association (за даними МАГАТЕ)', en: 'World Nuclear Association (IAEA data)' }, url: 'https://world-nuclear.org/information-library/country-profiles/countries-t-z/ukraine-russia-war-and-nuclear-energy' },
   ceobsAzovstal: { name: 'CEOBS', url: 'https://ceobs.org/ukraine-damage-map-azovstal-iron-and-steel-works/' },
   ceobsIndustry: { name: 'CEOBS', url: 'https://ceobs.org/?p=8001' },
-  ombudsman: { name: 'Уповноважений ВРУ з прав людини', url: 'https://www.ombudsman.gov.ua/en/news_details/upovnovazhenij-azovskomu-moryu-zagrozhuye-ekologichna-katastrofa-vsya-flora-i-fauna-mozhe-zaginuti' },
-  damage: { name: 'Держекоінспекція / Мінекономіки', url: 'https://me.gov.ua/News/Detail/29b4233b-e60e-4224-ae2e-81b5a7e62cdc?lang=en-GB&title=RussiasAggressionHasAlreadyCausedMoreThanUah6-TrillionInEnvironmentalDamageToUkraine' },
+  ombudsman: { name: { uk: 'Уповноважений ВРУ з прав людини', en: 'Ukrainian Parliament Commissioner for Human Rights' }, url: 'https://www.ombudsman.gov.ua/en/news_details/upovnovazhenij-azovskomu-moryu-zagrozhuye-ekologichna-katastrofa-vsya-flora-i-fauna-mozhe-zaginuti' },
+  damage: { name: { uk: 'Держекоінспекція / Мінекономіки', en: 'State Environmental Inspectorate / Ministry of Economy' }, url: 'https://me.gov.ua/News/Detail/29b4233b-e60e-4224-ae2e-81b5a7e62cdc?lang=en-GB&title=RussiasAggressionHasAlreadyCausedMoreThanUah6-TrillionInEnvironmentalDamageToUkraine' },
   ghg: { name: 'Initiative on GHG Accounting of War', url: 'https://planetarysecurityinitiative.org/news/climate-damage-caused-russias-war-ukraine-1' },
-  forests: { name: 'Держлісагентство', url: 'https://forest.gov.ua/en/news/at-the-uns-main-global-forest-forum-in-new-york-the-consequences-of-russian-aggression-for-ukraines-forest-ecosystems-were-discussed' },
-  mines: { name: 'ДСНС', url: 'https://mediacenter.org.ua/nearly-a-quarter-of-ukraine-s-territory-contaminated-with-explosives-ses-officials-say/' },
+  forests: { name: { uk: 'Держлісагентство', en: 'State Forest Resources Agency' }, url: 'https://forest.gov.ua/en/news/at-the-uns-main-global-forest-forum-in-new-york-the-consequences-of-russian-aggression-for-ukraines-forest-ecosystems-were-discussed' },
+  mines: { name: { uk: 'ДСНС', en: 'State Emergency Service of Ukraine' }, url: 'https://mediacenter.org.ua/nearly-a-quarter-of-ukraine-s-territory-contaminated-with-explosives-ses-officials-say/' },
   firms: { name: 'NASA FIRMS', url: 'https://firms.modaps.eosdis.nasa.gov/' },
 };
 

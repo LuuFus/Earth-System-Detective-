@@ -1,4 +1,4 @@
-# Earth System Detective: фронтенд
+# Earth-System-Detective: фронтенд
 
 **Українська** | [English](README.en.md)
 

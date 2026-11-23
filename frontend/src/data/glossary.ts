@@ -452,7 +452,7 @@ export const glossary: Term[] = [
     group: 'fire',
     term: { uk: 'Гектар, км², акр', en: 'Hectare, km², acre' },
     text: { uk: 'Одиниці площі, у яких рахують згарища, затоплені землі й окуповані території.', en: 'The area units used for burned land, flooded land and occupied territory.' },
-    formula: [{ uk: '1 га = 100 м × 100 м = 10 000 м²', en: '1 ha = 100 m × 100 m = 10,000 m²' }, '1 км² = 100 га', { uk: '1 акр ≈ 0,405 га', en: '1 acre ≈ 0.405 ha' }],
+    formula: [{ uk: '1 га = 100 м × 100 м = 10 000 м²', en: '1 ha = 100 m × 100 m = 10,000 m²' }, { uk: '1 км² = 100 га', en: '1 km² = 100 ha' }, { uk: '1 акр ≈ 0,405 га', en: '1 acre ≈ 0.405 ha' }],
     example: { uk: 'Пожежа Палісейдс — 23 448 акрів ≈ 9 500 га ≈ 95 км². Футбольне поле — близько 0,7 га.', en: 'The Palisades fire: 23,448 acres ≈ 9,500 ha ≈ 95 km². A football pitch is about 0.7 ha.' },
   },
   {
@@ -460,13 +460,13 @@ export const glossary: Term[] = [
     group: 'fire',
     term: { uk: 'Радіаційний фон, мкЗв/год', en: 'Background radiation, µSv/h' },
     text: {
-      uk: 'Потужність дози — скільки опромінення людина отримує за годину. Природний фон є всюди: від ґрунту, каміння й космосу. Safecast міряє його волонтерськими дозиметрами.',
-      en: 'The dose rate — how much radiation a person receives per hour. Natural background is everywhere: from soil, rock and space. Safecast measures it with volunteers’ detectors.',
+      uk: 'Потужність дози — скільки опромінення людина отримує за годину. Природний фон є всюди: від ґрунту, каміння й космосу. На сайті його показують станції, кожна з яких постійно міряє фон саме у своєму місці (дані SaveEcoBot).',
+      en: 'The dose rate — how much radiation a person receives per hour. Natural background is everywhere: from soil, rock and space. On the site it comes from stations, each of which keeps measuring the background at its own place (SaveEcoBot data).',
     },
     formula: [{ uk: 'доза (мкЗв) = потужність (мкЗв/год) × час (год)', en: 'dose (µSv) = dose rate (µSv/h) × time (h)' }],
-    values: { uk: 'до 0,3 — звичайний фон; 0,3–1 — підвищений (граніт, гори); понад 1 — забруднені ділянки, як у Чорнобильській зоні.', en: 'up to 0.3: normal background; 0.3-1: raised (granite, mountains); over 1: contaminated spots, as in the Chornobyl zone.' },
+    values: { uk: 'до 0,15 — низький фон; 0,15–0,3 — звичайний; 0,3–1 — підвищений (граніт, гори); понад 1 — забруднені ділянки, як у Чорнобильській зоні. 1 мкЗв/год = 1 000 нЗв/год.', en: 'up to 0.15: low background; 0.15-0.3: ordinary; 0.3-1: raised (granite, mountains); over 1: contaminated spots, as in the Chornobyl zone. 1 µSv/h = 1,000 nSv/h.' },
     example: { uk: 'У літаку на висоті польоту — приблизно 3–5 мкЗв/год, тобто політ на 3 години дає ≈ 10–15 мкЗв.', en: 'In a plane at cruising altitude it is about 3-5 µSv/h, so a 3-hour flight gives about 10-15 µSv.' },
-    where: { uk: 'Україна → «Радіаційний фон (Safecast)».', en: 'Ukraine → "Background radiation (Safecast)".' },
+    where: { uk: 'Україна → «Радіаційний фон (станції SaveEcoBot)».', en: 'Ukraine → "Background radiation (SaveEcoBot stations)".' },
   },
   {
     id: 'occupied',

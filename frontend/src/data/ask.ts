@@ -9,15 +9,18 @@ import { loadCityAir, loadCityWeather, nearestStation, searchCities, type City }
 import { countries } from './countries';
 import { countryName } from './geo';
 import { loadFires, type LiveManifest } from './live';
-import { distanceKm } from './nearby';
+import { distanceKm, PointIndex } from './nearby';
+import { loadRadiation, nearestRad } from './radiation';
 import { variableById } from './variables';
 
-export type Topic = 'warming' | 'rain' | 'snow' | 'air' | 'fires' | 'weather' | 'war' | 'ice';
+export type Topic = 'warming' | 'rain' | 'snow' | 'air' | 'fires' | 'weather' | 'war' | 'ice' | 'radiation';
 export type When = 'now' | 'today' | 'tomorrow' | null;
 export type Parsed = { topic: Topic | null; when: When; places: string[]; mine: boolean };
 
-/** Word stems per topic, checked in this order (the first match wins). */
+/** Word stems per topic, checked in this order (the first match wins): radiation before war, so
+ * "Яка радіація в Чорнобилі?" is about radiation, not the war. */
 const TOPICS: [Topic, string[]][] = [
+  ['radiation', ['радіац', 'радіоакт', 'дозиметр', 'гамма', 'зіверт', 'фон радіа', 'radiat', 'radioact', 'dosimeter', 'gamma', 'sievert']],
   ['war', ['війн', 'фронт', 'окупац', 'каховк', 'азовстал', 'чорнобил', 'заес', ' war ', ' wars ', 'front line', 'occupation', 'kakhovka', 'azovstal', 'chornobyl', 'chernobyl']],
   ['fires', ['пожеж', 'горить', 'горять', 'вогонь', 'вогні', 'палає', 'згорі', 'fire', 'burn', 'blaze']],
   ['air', ['повітр', 'забрудн', 'смог', 'дим', 'дихат', 'aqi', 'pm2', 'air', 'pollut', 'smog', 'smoke', 'breath']],
@@ -52,7 +55,9 @@ export function stems(word: string): string[] {
     const m = /^(.*)([оеє])([бвгґджзклмнпрстфхцчшщ])$/i.exec(x);
     if (m) back.push(`${m[1]}${m[2].toLowerCase() === 'є' ? 'ї' : 'і'}${m[3]}`);
   }
-  return [...new Set([...back, ...out])];
+  // Names ending in a soft sign lose it in the cases: Чорнобиль - Чорнобилі, Ірпінь - Ірпеня.
+  const soft = out.slice(1).filter((x) => /[бвгґджзклмнпрстфхцчшщ]$/i.test(x)).map((x) => `${x}ь`);
+  return [...new Set([...back, ...soft, ...out])];
 }
 
 export function parseQuestion(text: string): Parsed {
@@ -128,6 +133,7 @@ export type Answer =
   | { kind: 'trend'; topic: 'warming' | 'rain'; place: Place; from: number; to: number; change: number; perDecade: number; significant: boolean; links: Link[] }
   | { kind: 'air'; place: Place; model: number | null; measured: { aqi: number; name: string; km: number } | null; links: Link[] }
   | { kind: 'fires'; place: Place; count: number; km: number; nearestKm: number | null; links: Link[] }
+  | { kind: 'radiation'; place: Place; usv: number | null; km: number | null; time: string | null; links: Link[] }
   | { kind: 'weather'; place: Place; day: 'today' | 'tomorrow'; tMin: number; tMax: number; rain: number; rainChance: number | null; gust: number; snow: boolean; links: Link[] }
   | { kind: 'snow'; place: Place; days: number; links: Link[] }
   | { kind: 'war'; links: Link[] }
@@ -176,6 +182,20 @@ export async function answerQuestion(q: Parsed, place: Place | null, manifest: L
       place,
       model: air?.now.aqi ?? null,
       measured: fresh ? { aqi: fresh.station.aqi, name: fresh.station.name ?? fresh.station.city ?? '', km: fresh.km } : null,
+      links: [{ label: 'map', to: '/map?mode=ukraine' }, ...more],
+    };
+  }
+  if (q.topic === 'radiation') {
+    // The nearest station within 30 km measures the background right there.
+    const list = await loadRadiation().catch(() => []);
+    const index = list.length ? new PointIndex(list.map((s) => s.lat), list.map((s) => s.lon)) : null;
+    const near = nearestRad(index, list, place.lat, place.lon, 30);
+    return {
+      kind: 'radiation',
+      place,
+      usv: near?.s.usv ?? null,
+      km: near?.km ?? null,
+      time: near?.s.time ?? null,
       links: [{ label: 'map', to: '/map?mode=ukraine' }, ...more],
     };
   }

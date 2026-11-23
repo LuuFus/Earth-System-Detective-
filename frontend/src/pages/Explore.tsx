@@ -21,6 +21,8 @@ import { AnalysisDrawer } from '../components/studio/AnalysisDrawer';
 import { HintCard, HintPreview } from '../components/studio/HintCard';
 import { Icon } from '../components/studio/Icon';
 import { AirCard } from '../components/studio/AirCard';
+import { RadCard } from '../components/studio/RadCard';
+import { isOldRad, loadRadiation, nearestRad, RAD_COLORS, radBand, radLabel, type RadStation } from '../data/radiation';
 import { CursorInfo } from '../components/studio/CursorInfo';
 import { OccupationPlayer } from '../components/studio/OccupationPlayer';
 import { loadOccHistory, OccPainter, type OccHistory } from '../data/frontHistory';
@@ -297,6 +299,44 @@ export default function Explore() {
   }, []);
   const onStationPick = useCallback((i: number) => {
     setAirHover((h) => ({ i, x: h?.x ?? window.innerWidth / 2, y: h?.y ?? window.innerHeight / 2, pinned: true }));
+  }, []);
+
+  // Background radiation at fixed stations (SaveEcoBot), checked again every five minutes while shown.
+  const [radiation, setRadiation] = useState<RadStation[]>([]);
+  useEffect(() => {
+    if (!state.radiation) return;
+    let cancelled = false;
+    const load = () =>
+      loadRadiation()
+        .then((list) => !cancelled && setRadiation(list))
+        .catch(() => undefined);
+    void load();
+    const id = window.setInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [state.radiation]);
+  const radIndex = useMemo(() => (radiation.length ? new PointIndex(radiation.map((x) => x.lat), radiation.map((x) => x.lon)) : null), [radiation]);
+  const radLayer = useMemo<GlobeStations | null>(() => {
+    if (!state.radiation || !radiation.length) return null;
+    return {
+      key: `rad|${radiation.length}|${radiation[0]?.time ?? ''}`,
+      lat: radiation.map((x) => x.lat),
+      lon: radiation.map((x) => x.lon),
+      value: radiation.map((x) => x.usv),
+      label: radiation.map((x) => radLabel(x.usv, lang)),
+      color: radiation.map((x) => RAD_COLORS[radBand(x.usv)]),
+      old: radiation.map((x) => (isOldRad(x) ? 1 : 0)),
+    };
+  }, [state.radiation, radiation, lang]);
+  const [radHover, setRadHover] = useState<{ i: number; x: number; y: number; pinned: boolean } | null>(null);
+  const onRadHover = useCallback((i: number, x: number, y: number) => {
+    setRadHover((h) => (h?.pinned ? h : i < 0 ? null : { i, x, y, pinned: false }));
+  }, []);
+  const onRadPick = useCallback((i: number) => {
+    setAirHover((h) => (h?.pinned ? null : h));
+    setRadHover((h) => ({ i, x: h?.x ?? window.innerWidth / 2, y: h?.y ?? window.innerHeight / 2, pinned: true }));
   }, []);
 
   // The front (DeepState): every version, one per day; the newest unless the slider moved.
@@ -657,10 +697,11 @@ export default function Explore() {
     layerLine = `${variable.name[lang]}: ${value ? (colorMap!.numeric ? liveText.layerScale.level(value, levelWord(hit!.at, lang)) : value) : colorMap ? liveText.layerScale.noValue : ''}`.replace(/: $/, '');
   }
   if (hover && state.radiation) {
-    const dose = globe.current?.sampleRadiation(hover.lat, hover.lon) ?? null;
-    if (dose !== null) {
+    // The nearest station within 25 km: a reading at a place, not a guess between stations.
+    const near = nearestRad(radIndex, radiation, hover.lat, hover.lon);
+    if (near) {
       const lt = liveText.ukraine;
-      layerLine = lt.radiationAt(numberFormat(lang, dose < 1 ? 2 : 1, false)(dose), lt.radiationLevel[dose < 0.3 ? 0 : dose < 1 ? 1 : 2]);
+      layerLine = lt.radiationAt(radLabel(near.s.usv, lang), lt.radiationLevel[radBand(near.s.usv)], numberFormat(lang, 0)(near.km));
     }
   }
 
@@ -668,7 +709,7 @@ export default function Explore() {
 
   return (
     <main className="explore studio">
-      <h1 className="visually-hidden">Earth System Detective: 3D</h1>
+      <h1 className="visually-hidden">Earth-System-Detective: 3D</h1>
       <Globe
         label={t.explore.globe}
         fallback={t.explore.unavailable}
@@ -691,7 +732,9 @@ export default function Explore() {
         onStationHover={onStationHover}
         onStationPick={onStationPick}
         front={occOpen ? occVector : frontVector}
-        radiation={state.radiation}
+        radStations={radLayer}
+        onRadHover={onRadHover}
+        onRadPick={onRadPick}
         field={globeField}
         wind={globeWind}
         onHint={onHint}
@@ -845,6 +888,10 @@ export default function Explore() {
         </p>
       )}
 
+      {radHover && !airHover && radiation[radHover.i] && (
+        <RadCard station={radiation[radHover.i]} x={radHover.x} y={radHover.y} pinned={radHover.pinned} onClose={() => setRadHover(null)} />
+      )}
+
       {airHover && airStations[airHover.i] && (
         <AirCard
           station={airStations[airHover.i]}
@@ -939,10 +986,9 @@ export default function Explore() {
         </div>
       )}
 
-      {!airHover && (
+      {!airHover && !radHover && (
         <CursorInfo point={hover} frame={frame} fires={fireData} air={airIndex} hints={hints} layerLine={layerLine} />
       )}
-      {state.radiation && (view?.distance ?? 3) >= 1.9 && <p className="explore__hint">{liveText.ukraine.radiationZoom}</p>}
       {loading && (
         <p className="explore__status" role="status">
           {s.imagery}

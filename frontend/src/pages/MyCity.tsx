@@ -6,6 +6,8 @@ import { Icon } from '../components/studio/Icon';
 import { TopBar } from '../components/TopBar';
 import { dayAdvice, type Advice, type Level, type Reason } from '../data/advice';
 import { isOld } from '../data/air';
+import { loadRadiation, nearestRad, RAD_COLORS, radBand, radLabel, type RadStation } from '../data/radiation';
+import { PointIndex } from '../data/nearby';
 import { loadCityAir, loadCityWeather, loadFiresNear, nearestStation, placeAt, sameCity, searchCities, useMyCity, type City, type CityAir, type CityWeather, type FiresNear, type Measured } from '../data/city';
 import { ago, useLiveManifest } from '../data/live';
 import { AQI_COLORS, aqiBand } from '../data/ukraine';
@@ -59,7 +61,7 @@ export default function MyCity() {
     setPicking(false);
   };
   useEffect(() => {
-    document.title = city ? `${city.name} · Earth System Detective` : `${t.title} · Earth System Detective`;
+    document.title = city ? `${city.name} · Earth-System-Detective` : `${t.title} · Earth-System-Detective`;
   }, [city, t.title]);
 
   return (
@@ -165,6 +167,11 @@ function CityView({ city, pinned, onPin, onChange, lang }: { city: City; pinned:
   const air = useLoad<CityAir>(key, (s) => loadCityAir(city.lat, city.lon, s));
   const station = useLoad<Measured | null>(manifest ? `${key}|${manifest.built}` : null, () => nearestStation(city.lat, city.lon, manifest));
   const fires = useLoad<FiresNear>(manifest?.fires ? `${key}|${manifest.built}` : null, () => loadFiresNear(manifest!, city.lat, city.lon));
+  // The nearest radiation station within 30 km.
+  const rad = useLoad<{ s: RadStation; km: number } | null>(key, async () => {
+    const list = await loadRadiation();
+    return nearestRad(new PointIndex(list.map((x) => x.lat), list.map((x) => x.lon)), list, city.lat, city.lon, 30);
+  });
   const climate = useLoad<{ stats: TrendStats | null; points: { x: number; y: number }[] }>(key, async () => {
     const s = await loadSeries(variableById.t2m, { kind: 'point', lat: city.lat, lon: city.lon, radiusKm: 25 }, 'year');
     const points = s.points.filter((p) => Number.isFinite(p.y));
@@ -304,6 +311,27 @@ function CityView({ city, pinned, onPin, onChange, lang }: { city: City; pinned:
           )}
           <Link className="chip-btn" to={`/explore?panel=fires&on=fires&cam=${here},1.25`}>
             {t.firesMap}
+          </Link>
+        </Card>
+
+        <Card title={t.radiation} className="city-rad">
+          {rad.status === 'ready' ? (
+            rad.data ? (
+              <>
+                <p className="city-rad__value">
+                  <span className="aqi-dot" style={{ background: hex(RAD_COLORS[radBand(rad.data.s.usv)]) }} />
+                  <strong>{radLabel(rad.data.s.usv, lang)}</strong> {t.radUnit} — {t.radBands[radBand(rad.data.s.usv)]}
+                </p>
+                <p className="note">{t.radStation(new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(rad.data.km), ago(rad.data.s.time, lang))}</p>
+              </>
+            ) : (
+              <p>{t.radNone}</p>
+            )
+          ) : (
+            <Status status={rad.status} />
+          )}
+          <Link className="chip-btn" to={`/explore?on=rad&cam=${here},1.3`}>
+            {t.radMap}
           </Link>
         </Card>
 

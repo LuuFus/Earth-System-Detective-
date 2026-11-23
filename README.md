@@ -1,4 +1,4 @@
-# Earth System Detective
+# Earth-System-Detective
 
 **Українська** | [English](README.en.md)
 
@@ -145,7 +145,11 @@ Marble) і **вся планета вночі**.
   показує ще район, головний забруднювач, індекси PM2.5, PM10, NO₂, O₃, SO₂, CO і що поруч за даними:
   пожежі, безвітря, опади, вологість, пил і гази з моделі Copernicus CAMS.
 - **Окуповані території й лінія фронту DeepState**; **окуповані громади** за офіційним переліком
-  Мінрозвитку; **радіаційний фон** Safecast у мкЗв/год; **пожежі** NASA FIRMS.
+  Мінрозвитку; **пожежі** NASA FIRMS.
+- **Радіаційний фон на станціях** (SaveEcoBot): кожна позначка — окрема станція, що міряє гамма-фон
+  саме у своєму місці, з числом у мкЗв/год і кольором рівня (низький, звичайний, підвищений,
+  високий). Картка станції простими словами пояснює, що означає число, скільки це за рік і що робити.
+  Те саме — на 3D-Землі, у «Моєму місті» й у відповідях «Запитай Землю» («Яка радіація в Києві?»).
 - **Хронологія окупації з 2022 року** (на мапі й на 3D-Землі): програвач тиждень за тижнем — від
   лінії до 24 лютого 2022 року до сьогодні. Тижні плавно перетікають один в одний; захоплене за
   останні 4 тижні підсвічено бурштиновим, звільнене — синім. Над повзунком — дата, площа окупованого
@@ -231,7 +235,7 @@ War, Держлісагентство, ДСНС, CEOBS, UNEP, МАГАТЕ).
 завтра в Одесі?» — і сайт сам знайде місце, порахує відповідь з даних і дасть посилання на глобус,
 мапу чи сторінку міста.
 
-Поки без штучного інтелекту: сайт розпізнає тему (температура, опади, сніг, повітря, пожежі, погода,
+Поки без штучного інтелекту: сайт розпізнає тему (температура, опади, сніг, повітря, радіація, пожежі, погода,
 лід, війна) і місце (країну за назвою, місто — через пошук Open-Meteo, з українськими відмінками:
 «Харкова» → Харків, «Києві» → Київ). Відповідь рахується тими самими методами, що й аналіз
 (нахил Сена, тест Манна-Кендалла). Згодом сюди можна під’єднати Claude, щоб розуміти будь-які
@@ -318,7 +322,7 @@ Commons (автори й ліцензії вказано) і джерела. К�
   кордони й назви Natural Earth.
 
 Решту браузер бере напряму: NASA GIBS і POWER, Open-Meteo і Copernicus CAMS, SaveEcoBot, WAQI,
-RainViewer, DeepState, Safecast, OpenStreetMap Nominatim, Wikimedia Commons.
+RainViewer, DeepState, OpenStreetMap Nominatim, Wikimedia Commons.
 
 ### Як оновлюються дані
 
@@ -402,7 +406,7 @@ npm run screenshots # Playwright: знову зняти скріншоти дл�
 NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI, MODIS, NASA FIRMS,
 NASA Black Marble, NASA Image and Video Library, NASA JSC Crew Earth Observations; NOAA GFS; NOAA
 Storm Prediction Center; RainViewer; Open-Meteo; Copernicus CAMS через Open-Meteo; DeepState;
-SaveEcoBot; Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0); перелік окупованих
+SaveEcoBot (повітря й радіаційний фон); Sensor.Community; World Air Quality Index (WAQI); перелік окупованих
 громад Мінрозвитку України; NASA Earth Observatory; CEOBS; UNEP; МАГАТЕ (через World Nuclear
 Association); Держекоінспекція; Держлісагентство; ДСНС; Initiative on GHG Accounting of War; відео
 МАГАТЕ, ЄБРР, EPRS, AP і UATV на YouTube; пошук міст Open-Meteo (GeoNames); карти Natural Earth (суспільне надбання) і OpenStreetMap (ODbL); фото

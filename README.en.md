@@ -1,4 +1,4 @@
-# Earth System Detective
+# Earth-System-Detective
 
 [Українська](README.md) | **English**
 
@@ -147,7 +147,12 @@ out to the world the dimming fades). Map styles: relief, satellite, OpenStreetMa
   also shows the district, the main pollutant, PM2.5, PM10, NO₂, O₃, SO₂ and CO sub-indices, and what the
   data show nearby: fires, still air, rain, humidity, dust and gases from the Copernicus CAMS model.
 - **Occupied territory and the DeepState front line**; **occupied communities** from the official list
-  of Ukraine's Ministry of Development; **radiation** from Safecast in µSv/h; **fires** from NASA FIRMS.
+  of Ukraine's Ministry of Development; **fires** from NASA FIRMS.
+- **Background radiation at stations** (SaveEcoBot): each tag is a station measuring the gamma
+  background at its own place, with the number in µSv/h and a colour for the level (low, ordinary,
+  raised, high). The station card explains in plain words what the number means, what it adds up to
+  in a year and what to do. The same on the 3D Earth, in My city and in Ask the Earth ("What is the
+  radiation in Kyiv?").
 - **Occupation timeline since 2022** (on the map and on the 3D Earth): a week-by-week player from the
   line before 24 February 2022 to today. The weeks dissolve smoothly into each other; what was captured
   in the last 4 weeks glows amber, what was liberated blue. Above the slider: the date, the occupied
@@ -233,7 +238,7 @@ warmer in Cherkasy?”, “What is the air like in Kyiv now?”, “Are there fi
 the weather tomorrow in Odesa?” — and the site finds the place, works out the answer from the data and
 links to the globe, map or city page.
 
-No AI yet: the site reads the topic (temperature, rain, snow, air, fires, weather, ice, war) and the
+No AI yet: the site reads the topic (temperature, rain, snow, air, radiation, fires, weather, ice, war) and the
 place (a country by name, a town via Open-Meteo search, undoing Ukrainian case endings). The answer is
 computed with the same methods as the analysis (Sen’s slope, Mann-Kendall). Claude can be connected
 here later to understand any question.
@@ -319,7 +324,7 @@ collect the data and publish it as files.
   Natural Earth borders and names.
 
 Everything else the browser fetches directly: NASA GIBS and POWER, Open-Meteo and Copernicus CAMS,
-SaveEcoBot, WAQI, RainViewer, DeepState, Safecast, OpenStreetMap Nominatim, Wikimedia Commons.
+SaveEcoBot, WAQI, RainViewer, DeepState, OpenStreetMap Nominatim, Wikimedia Commons.
 
 ### How the data update
 
@@ -403,7 +408,7 @@ collected, the site is built and published to the `gh-pages` branch, which GitHu
 NASA GISS (GISTEMP v4), NASA GIBS, NASA POWER (MERRA-2), NASA Ozone Watch, OMI, MODIS, NASA FIRMS,
 NASA Black Marble, NASA Image and Video Library, NASA JSC Crew Earth Observations; NOAA GFS; NOAA
 Storm Prediction Center; RainViewer; Open-Meteo; Copernicus CAMS via Open-Meteo; DeepState;
-SaveEcoBot; Sensor.Community; World Air Quality Index (WAQI); Safecast (CC0);
+SaveEcoBot (air and background radiation); Sensor.Community; World Air Quality Index (WAQI);
 NASA Earth Observatory; CEOBS; UNEP; the IAEA (via the World Nuclear Association); Ukraine's State
 Environmental Inspectorate, State Forest Resources Agency and State Emergency Service; the Initiative
 on GHG Accounting of War; IAEA, EBRD, EPRS, AP and UATV videos on YouTube; Open-Meteo town search

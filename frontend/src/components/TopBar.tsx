@@ -33,7 +33,7 @@ export function Wordmark() {
           <path d="M3.5 9.5c3 1.6 5.8 1.2 8.4-.6 2.7-1.9 5.5-2.2 8.6-.6M4.6 16.4c2.8-1.2 5.4-.9 7.9.6 2.4 1.5 4.8 1.6 7-.1" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       </span>
-      <span className="wordmark__text">Earth System Detective</span>
+      <span className="wordmark__text">Earth-System-Detective</span>
     </span>
   );
 }

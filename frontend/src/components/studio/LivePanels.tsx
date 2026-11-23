@@ -4,9 +4,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ago, SCALES, type FieldKind, type LiveManifest } from '../../data/live';
-import { SAFECAST_GRADIENT } from '../../data/safecast';
+import { RAD_COLORS, RAD_MAP } from '../../data/radiation';
 import { WAQI_TOKEN } from '../../data/waqi';
-import { AQI_COLORS, aqiBand, DEEPSTATE, SAFECAST_URL, type AqiStation, type FireStory, type FrontVersion } from '../../data/ukraine';
+import { AQI_COLORS, aqiBand, DEEPSTATE, type AqiStation, type FireStory, type FrontVersion } from '../../data/ukraine';
 import type { WarData } from '../../data/war';
 import { useI18n } from '../../i18n/I18n';
 import { useLiveText } from '../../i18n/live';
@@ -353,8 +353,8 @@ export function UkrainePanel(p: UkraineProps) {
           <div className="sub">
             <RadiationLegend />
             <p className="note">{u.radiationNote}</p>
-            <a className="text-link" href={SAFECAST_URL} target="_blank" rel="noreferrer">
-              Safecast ↗
+            <a className="text-link" href={RAD_MAP} target="_blank" rel="noreferrer">
+              SaveEcoBot ↗
             </a>
           </div>
         )}
@@ -417,46 +417,20 @@ export function UkrainePanel(p: UkraineProps) {
   );
 }
 
-// ---------- Radiation legend (Safecast's own scale) ----------
-
-const RAD_TICKS: [number, number][] = [
-  [0.05, 0.068],
-  [0.12, 0.213],
-  [0.23, 0.356],
-  [0.43, 0.496],
-  [0.87, 0.64],
-  [2.13, 0.785],
-  [10.1, 0.928],
-];
+// ---------- Radiation legend (the stations' levels) ----------
 
 export function RadiationLegend() {
-  const { lang } = useI18n();
   const u = useLiveText().ukraine;
-  const nf = new Intl.NumberFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { maximumFractionDigits: 2 });
   return (
     <div className="rad-legend">
-      <span className="rad-legend__bar" style={{ background: SAFECAST_GRADIENT }} aria-hidden="true" />
-      <span className="rad-legend__ticks" aria-hidden="true">
-        {RAD_TICKS.map(([v, x]) => (
-          <span key={v} style={{ left: `${x * 100}%` }}>
-            {nf.format(v)}
-          </span>
-        ))}
-      </span>
       <p className="rad-legend__unit">{u.radiationUnit}</p>
       <ul className="rad-legend__bands">
-        <li>
-          <i style={{ background: 'rgb(58,163,255)' }} />
-          {u.radiationBands[0]}
-        </li>
-        <li>
-          <i style={{ background: 'rgb(222,104,255)' }} />
-          {u.radiationBands[1]}
-        </li>
-        <li>
-          <i style={{ background: 'rgb(255,92,3)' }} />
-          {u.radiationBands[2]}
-        </li>
+        {u.radiationBands.map((b, i) => (
+          <li key={b}>
+            <i style={{ background: hex(RAD_COLORS[i]) }} />
+            {b}
+          </li>
+        ))}
       </ul>
     </div>
   );

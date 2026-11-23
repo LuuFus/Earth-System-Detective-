@@ -98,7 +98,7 @@ export function nativeSource(main: TileSource, level: number, dilate = 0): TileS
 
 /**
  * A Web Mercator XYZ tile map (`{z}/{x}/{y}` in the template) reprojected into the globe's
- * latitude and longitude tiles, row by row. Used for Safecast's radiation map.
+ * latitude and longitude tiles, row by row.
  */
 export function mercatorSource(id: string, template: string, maxZoom: number, tileSize = 256): TileSource {
   const xyz = (z: number, x: number, y: number) => template.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));

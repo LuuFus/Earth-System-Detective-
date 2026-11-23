@@ -1,7 +1,7 @@
 // The 2D map, in two modes that can be combined:
 // - Ukraine: the country lit, its neighbours dimmed (the dimming fades as you zoom out to the
 //   world); air quality with the AQI in each bubble, fires, the DeepState front line, the
-//   official list of occupied communities and the Safecast radiation map.
+//   official list of occupied communities and the background radiation at fixed stations.
 // - Weather: a colour field from the NOAA GFS forecast (wind, gusts, temperature, rain and snow,
 //   cloud) with moving wind lines as Windy draws them, or the RainViewer radar; a timeline over
 //   the forecast hours; a point forecast from Open-Meteo where you click.
@@ -16,6 +16,7 @@ import { FlowLayer, type Projection } from '../components/globe/flow';
 import { StationLayer, type Stations } from '../components/globe/stations';
 import { bordersGeo, firesGeo, frontGeo, maskGeo, outlineGeo, warGeo } from '../components/map/geo';
 import { AirCard } from '../components/studio/AirCard';
+import { RadCard } from '../components/studio/RadCard';
 import { OccupationPlayer } from '../components/studio/OccupationPlayer';
 import { loadOccHistory, OccPainter, type OccHistory } from '../data/frontHistory';
 import { Icon, type IconName } from '../components/studio/Icon';
@@ -29,8 +30,9 @@ import { countryName, loadBorders, loadCountries } from '../data/geo';
 import { worldView, type FieldView, type GridFrame } from '../data/field';
 import { paintFieldAsync } from '../data/fieldPainter';
 import { ago, airqBounds, fieldValue, isAirKind, loadAir, loadAirq, loadFires, loadFrame, nearestFrame, useLiveManifest, type AirPoint, type FieldKind, type LiveFires, type LiveManifest, type WeatherFrame } from '../data/live';
-import { doseFromColor } from '../data/safecast';
-import { AQI_COLORS, aqiBand, dailyVersions, loadAqi, loadFront, loadFrontHistory, SAFECAST_TILES, type AqiStation } from '../data/ukraine';
+import { isOldRad, loadRadiation, nearestRad, RAD_COLORS, radBand, radLabel, type RadStation } from '../data/radiation';
+import { PointIndex } from '../data/nearby';
+import { AQI_COLORS, aqiBand, dailyVersions, loadAqi, loadFront, loadFrontHistory, type AqiStation } from '../data/ukraine';
 import { loadWar } from '../data/war';
 import { useI18n } from '../i18n/I18n';
 import { useLiveText } from '../i18n/live';
@@ -110,42 +112,6 @@ function useStored<T extends string>(key: string, initial: T): [T, (v: T) => voi
   ];
 }
 
-/** Dose rate from Safecast's map tile under a place: the tile is fetched and read as the map draws it. */
-const radTiles = new Map<string, Promise<ImageData | null>>();
-function doseAt(lat: number, lon: number, zoom: number): Promise<number | null> {
-  const z = Math.max(0, Math.min(15, Math.floor(zoom)));
-  const n = 2 ** z;
-  const x = ((lon + 180) / 360) * n;
-  const r = (lat * Math.PI) / 180;
-  const y = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
-  const tx = Math.floor(x);
-  const ty = Math.floor(y);
-  const key = `${z}/${tx}/${ty}`;
-  let p = radTiles.get(key);
-  if (!p) {
-    p = fetch(SAFECAST_TILES.replace('{z}', String(z)).replace('{x}', String(tx)).replace('{y}', String(ty)))
-      .then((res) => (res.ok ? res.blob() : null))
-      .then((b) => (b ? createImageBitmap(b) : null))
-      .then((img) => {
-        if (!img) return null;
-        const c = new OffscreenCanvas(img.width, img.height);
-        const ctx = c.getContext('2d')!;
-        ctx.drawImage(img, 0, 0);
-        return ctx.getImageData(0, 0, img.width, img.height);
-      })
-      .catch(() => null);
-    radTiles.set(key, p);
-    if (radTiles.size > 60) radTiles.delete(radTiles.keys().next().value as string);
-  }
-  return p.then((d) => {
-    if (!d) return null;
-    const px = Math.min(d.width - 1, Math.floor((x - tx) * d.width));
-    const py = Math.min(d.height - 1, Math.floor((y - ty) * d.height));
-    const k = (py * d.width + px) * 4;
-    return d.data[k + 3] < 200 ? null : doseFromColor(d.data[k], d.data[k + 1], d.data[k + 2]);
-  });
-}
-
 const countryNames = (lang: 'uk' | 'en'): GeoJSON.FeatureCollection => ({
   type: 'FeatureCollection',
   features: countries.map((c) => ({ type: 'Feature', properties: { name: countryName(c.code, lang), big: c.big ? 1 : 0 }, geometry: { type: 'Point', coordinates: [c.lon, c.lat] } })),
@@ -164,7 +130,6 @@ export default function MapPage() {
   const mapRef = useRef<MlMap | null>(null);
   const [ready, setReady] = useState(false);
   const [base, setBase] = useState(false);
-  const [zoom, setZoom] = useState(4.2);
   const [style, setStyle] = useStored<Style>('map-style', 'relief');
   const [storedLayer, setLayer] = useStored<Layer>('wm-layer', 'wind');
   const [particles, setParticles] = useStored<'on' | 'off'>('wm-particles', 'on');
@@ -186,13 +151,13 @@ export default function MapPage() {
   const [radarIndex, setRadarIndex] = useState<number | null>(null);
   const [point, setPoint] = useState<Point | null>(null);
   const [hover, setHover] = useState<{ x: number; y: number; lat: number; lon: number } | null>(null);
-  const [dose, setDose] = useState<number | null>(null);
   const flow = useMemo(() => {
     const f = new FlowLayer('weather-map__flow');
     f.wrap = false;
     return f;
   }, []);
   const stationsLayer = useMemo(() => new StationLayer('weather-map__stations'), []);
+  const radLayer = useMemo(() => new StationLayer('weather-map__rad', 'tag'), []);
 
   // ---------- the map ----------
   useEffect(() => {
@@ -233,24 +198,26 @@ export default function MapPage() {
     map.on('load', () => setReady(true));
     mapRef.current = map;
     el.appendChild(flow.canvas);
+    el.appendChild(radLayer.canvas);
     el.appendChild(stationsLayer.canvas);
     const resize = () => {
       const dpr = Math.min(2, window.devicePixelRatio);
       flow.resize(el.clientWidth, el.clientHeight, dpr);
       stationsLayer.resize(el.clientWidth, el.clientHeight, dpr);
+      radLayer.resize(el.clientWidth, el.clientHeight, dpr);
     };
     resize();
     map.on('resize', resize);
     map.on('move', () => flow.clear());
-    map.on('zoomend', () => setZoom(map.getZoom()));
     map.on('mouseout', () => setHover(null));
     return () => {
       flow.canvas.remove();
       stationsLayer.canvas.remove();
+      radLayer.canvas.remove();
       map.remove();
       mapRef.current = null;
     };
-  }, [flow, stationsLayer]);
+  }, [flow, stationsLayer, radLayer]);
 
   // One projection for the wind lines and the station bubbles.
   const view = useMemo<Projection | null>(() => {
@@ -534,23 +501,53 @@ export default function MapPage() {
     });
   }, [base, uaMode, ua.fires, fires, setGeo, manifest?.built]);
 
-  // Radiation (Safecast): from a zoom where its tiles show measurements, not big squares.
+  // Background radiation at fixed stations (SaveEcoBot): a tag with the dose rate at each one.
+  const [radiation, setRadiation] = useState<RadStation[]>([]);
   useEffect(() => {
+    if (!uaMode || !ua.radiation) return;
+    let cancelled = false;
+    const load = () =>
+      loadRadiation()
+        .then((list) => !cancelled && setRadiation(list))
+        .catch(() => undefined);
+    void load();
+    const id = window.setInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [uaMode, ua.radiation]);
+  const radIndex = useMemo(() => (radiation.length ? new PointIndex(radiation.map((x) => x.lat), radiation.map((x) => x.lon)) : null), [radiation]);
+  const radData = useMemo<Stations | null>(
+    () =>
+      uaMode && ua.radiation && radiation.length
+        ? {
+            key: `rad|${radiation.length}`,
+            lat: radiation.map((x) => x.lat),
+            lon: radiation.map((x) => x.lon),
+            value: radiation.map((x) => x.usv),
+            label: radiation.map((x) => radLabel(x.usv, lang)),
+            color: radiation.map((x) => RAD_COLORS[radBand(x.usv)]),
+            old: radiation.map((x) => (isOldRad(x) ? 1 : 0)),
+          }
+        : null,
+    [uaMode, ua.radiation, radiation, lang],
+  );
+  useEffect(() => {
+    radLayer.set(radData);
+    radLayer.canvas.hidden = !radData;
     const map = mapRef.current;
-    if (!map || !base) return;
-    const on = uaMode && ua.radiation;
-    if (on && !map.getSource('rad')) {
-      map.addSource('rad', {
-        type: 'raster',
-        tiles: [SAFECAST_TILES],
-        tileSize: 512,
-        maxzoom: 15,
-        attribution: 'Radiation © <a href="https://safecast.org/" target="_blank" rel="noreferrer">Safecast</a> (CC0)',
-      });
-      map.addLayer({ id: 'rad', type: 'raster', source: 'rad', minzoom: 5, paint: { 'raster-opacity': 0.9, 'raster-resampling': 'nearest' } }, 'borders-halo');
-    }
-    if (map.getLayer('rad')) map.setLayoutProperty('rad', 'visibility', on ? 'visible' : 'none');
-  }, [base, uaMode, ua.radiation]);
+    if (!map || !view || !radData) return;
+    radLayer.draw(view);
+    const raf = requestAnimationFrame(() => radLayer.draw(view));
+    const redraw = () => radLayer.draw(view);
+    map.on('move', redraw);
+    return () => {
+      cancelAnimationFrame(raf);
+      map.off('move', redraw);
+    };
+  }, [radData, radLayer, view]);
+  const [radCard, setRadCard] = useState<{ i: number; x: number; y: number; pinned: boolean } | null>(null);
 
   // Air quality: SaveEcoBot (Ukraine) and Sensor.Community (everywhere), the AQI in each bubble.
   const [seb, setSeb] = useState<AqiStation[]>([]);
@@ -599,20 +596,34 @@ export default function MapPage() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !view) return;
+    // An air bubble wins over a radiation tag under it.
     const move = (e: maplibregl.MapMouseEvent) => {
       const i = stationsLayer.active ? stationsLayer.hit(e.point.x, e.point.y) : -1;
+      const r = i < 0 && radLayer.active ? radLayer.hit(e.point.x, e.point.y) : -1;
       if (i !== stationsLayer.hovered) {
         stationsLayer.hovered = i;
         stationsLayer.draw(view);
-        map.getCanvas().style.cursor = i >= 0 ? 'pointer' : '';
       }
+      if (r !== radLayer.hovered) {
+        radLayer.hovered = r;
+        radLayer.draw(view);
+      }
+      map.getCanvas().style.cursor = i >= 0 || r >= 0 ? 'pointer' : '';
       setAirCard((c) => (c?.pinned ? c : i >= 0 ? { i, x: e.point.x, y: e.point.y, pinned: false } : null));
+      setRadCard((c) => (c?.pinned ? c : r >= 0 ? { i: r, x: e.point.x, y: e.point.y, pinned: false } : null));
       setHover({ x: e.point.x, y: e.point.y, lat: e.lngLat.lat, lon: e.lngLat.wrap().lng });
     };
     const click = (e: maplibregl.MapMouseEvent) => {
       const i = stationsLayer.active ? stationsLayer.hit(e.point.x, e.point.y) : -1;
       if (i >= 0) {
+        setRadCard(null);
         setAirCard({ i, x: e.point.x, y: e.point.y, pinned: true });
+        return;
+      }
+      const r = radLayer.active ? radLayer.hit(e.point.x, e.point.y) : -1;
+      if (r >= 0) {
+        setAirCard(null);
+        setRadCard({ i: r, x: e.point.x, y: e.point.y, pinned: true });
         return;
       }
       setPoint({ lat: e.lngLat.lat, lon: e.lngLat.wrap().lng });
@@ -623,23 +634,7 @@ export default function MapPage() {
       map.off('mousemove', move);
       map.off('click', click);
     };
-  }, [view, stationsLayer]);
-
-  // Radiation value under the pointer.
-  useEffect(() => {
-    if (!hover || !uaMode || !ua.radiation || zoom < 5) {
-      setDose(null);
-      return;
-    }
-    let cancelled = false;
-    const id = window.setTimeout(() => {
-      void doseAt(hover.lat, hover.lon, mapRef.current?.getZoom() ?? zoom).then((d) => !cancelled && setDose(d));
-    }, 60);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(id);
-    };
-  }, [hover, uaMode, ua.radiation, zoom]);
+  }, [view, stationsLayer, radLayer]);
 
   // ---------- forecast frames ----------
   const run = manifest?.weather?.run;
@@ -970,14 +965,14 @@ export default function MapPage() {
     return f ? new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(new Date(f.time * 1000)) : '';
   };
   const unitOf: Record<FieldKind, string> = { wind: w.units.wind, gust: w.units.wind, temp: w.units.temp, precip: w.units.precip, cloud: w.units.cloud, aqi: 'AQI', pm25: w.units.ugm3, dust: w.units.ugm3 };
-  const nfDose = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
   const readout = (() => {
-    if (!hover || airCard) return null;
+    if (!hover || airCard || radCard) return null;
     const parts: string[] = [];
     const shown = isAir ? airFrame : frame;
     const value = weather && shown && layer !== 'radar' ? fieldValue(shown, layer, hover.lat, hover.lon) : Number.NaN;
     if (Number.isFinite(value)) parts.push(`${new Intl.NumberFormat(locale, { maximumFractionDigits: layer === 'precip' ? 1 : 0 }).format(value)} ${unitOf[layer as FieldKind]}${isAir ? ` · ${w.model2}` : ''}`);
-    if (dose !== null) parts.push(t.ukraine.radiationAt(nfDose.format(dose), t.ukraine.radiationLevel[dose < 0.3 ? 0 : dose < 1 ? 1 : 2]));
+    const near = uaMode && ua.radiation ? nearestRad(radIndex, radiation, hover.lat, hover.lon) : null;
+    if (near) parts.push(t.ukraine.radiationAt(radLabel(near.s.usv, lang), t.ukraine.radiationLevel[radBand(near.s.usv)], new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(near.km)));
     return parts.length ? parts.join(' · ') : null;
   })();
   const now = manifest ? nearestFrame(manifest) : null;
@@ -1041,7 +1036,7 @@ export default function MapPage() {
               </ul>
             )}
             <Switch checked={ua.war} onChange={() => toggle('war')} label={t.ukraine.war} />
-            <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} note={ua.radiation && zoom < 5 ? m.radiationZoom : undefined} />
+            <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} />
             <div className="wm-sep" />
             {manifest?.airq && (
               <Switch
@@ -1098,6 +1093,7 @@ export default function MapPage() {
         </p>
       )}
 
+      {radCard && !airCard && radiation[radCard.i] && <RadCard station={radiation[radCard.i]} x={radCard.x} y={radCard.y} pinned={radCard.pinned} onClose={() => setRadCard(null)} />}
       {airCard && air[airCard.i] && <AirCard station={air[airCard.i]} x={airCard.x} y={airCard.y} pinned={airCard.pinned} frame={frame} fires={fires} onClose={() => setAirCard(null)} />}
 
       <div className="wm-legend">
@@ -1187,7 +1183,7 @@ export default function MapPage() {
       )}
 
       {point && <PointForecast point={point} data={hourly?.data ?? null} error={!!hourly?.error} onClose={() => setPoint(null)} />}
-      {!point && !airCard && <p className="wm-hint">{uaMode && ua.aqi ? m.hintUkraine : w.clickHint}</p>}
+      {!point && !airCard && !radCard && <p className="wm-hint">{uaMode && ua.aqi ? m.hintUkraine : w.clickHint}</p>}
     </main>
   );
 }

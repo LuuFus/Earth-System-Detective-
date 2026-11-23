@@ -252,3 +252,41 @@ test('occupied territory: the timeline plays from 2022 and can be moved by hand'
   await expect(player.locator('.occ-chip--liberated')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('radiation: stations with their own reading at each place, a card in plain words', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/map?mode=ukraine');
+  await page.locator('.wm-ua .switch', { hasText: 'Радіаційний фон' }).click();
+  // The radiation tags get their own canvas, and it gets painted.
+  const tags = page.locator('canvas.weather-map__rad');
+  await expect(tags).toBeVisible();
+  await expect
+    .poll(() =>
+      tags.evaluate((c: HTMLCanvasElement) => {
+        const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 3; i < d.length; i += 4 * 16) if (d[i] > 0) n++;
+        return n;
+      }),
+    )
+    .toBeGreaterThan(100);
+  // Ask the Earth answers with the nearest station's reading.
+  await page.getByRole('button', { name: 'Запитай Землю' }).click();
+  await page.getByRole('searchbox', { name: /Наприклад/ }).fill('Яка радіація в Києві?');
+  await page.getByRole('button', { name: 'Запитати' }).click();
+  await expect(page.locator('.ask-card')).toContainText('мкЗв/год', { timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+test('on a phone, the home and war pages fit the screen', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  for (const path of ['/', '/war']) {
+    await page.goto(path);
+    await page.waitForTimeout(1500);
+    const wide = await page.evaluate(() => {
+      const w = document.documentElement.clientWidth;
+      return [...document.querySelectorAll('h1, h2, p, a, button')].filter((e) => e.getBoundingClientRect().right > w + 2 && e.getBoundingClientRect().width > 0).length;
+    });
+    expect(wide, path).toBe(0);
+  }
+});

@@ -21,6 +21,13 @@ describe('reading a question', () => {
     expect(parseQuestion('Яке повітря в моєму місті?')).toMatchObject({ topic: 'air', mine: true });
   });
 
+  it('radiation is its own topic, even about Chornobyl', () => {
+    expect(parseQuestion('Яка радіація в Чорнобилі?')).toMatchObject({ topic: 'radiation', places: ['Чорнобилі'] });
+    expect(parseQuestion('Який радіаційний фон у Києві?').topic).toBe('radiation');
+    expect(parseQuestion('radiation in Kyiv now')).toMatchObject({ topic: 'radiation', when: 'now' });
+    expect(parseQuestion('Що війна зробила з Чорнобилем?').topic).toBe('war');
+  });
+
   it('a question it cannot read has no topic', () => {
     expect(parseQuestion('Привіт!').topic).toBeNull();
   });
@@ -36,5 +43,7 @@ describe('case endings', () => {
     expect(stems('Харкова')[0]).toBe('Харків');
     expect(stems('Львові')[0]).toBe('Львів');
     expect(stems('Києві')[0]).toBe('Київ');
+    // A soft sign comes back too: Чорнобилі -> Чорнобиль.
+    expect(stems('Чорнобилі')).toContain('Чорнобиль');
   });
 });

@@ -5,7 +5,7 @@ import { Icon } from '../components/studio/Icon';
 import { TopBar } from '../components/TopBar';
 import { VideoFacade } from '../components/VideoFacade';
 import { photoPage, photoUrl } from '../data/photos';
-import { TALLY, WAR_CHORNOBYL_VIDEO, WAR_INTRO_VIDEO, WAR_TOPICS, type Fact, type Video } from '../data/warImpact';
+import { TALLY, WAR_CHORNOBYL_VIDEO, WAR_INTRO_VIDEO, WAR_TOPICS, type Fact, type Source, type Video } from '../data/warImpact';
 import { useI18n } from '../i18n/I18n';
 import { useLiveText } from '../i18n/live';
 
@@ -16,7 +16,7 @@ export default function War() {
   const { lang } = useI18n();
   const t = useLiveText().war;
   useEffect(() => {
-    document.title = `${t.title} · Earth System Detective`;
+    document.title = `${t.title} · Earth-System-Detective`;
   }, [t.title]);
   // The poster is a photo or satellite image of the same story, already credited on the page.
   const video = (v: Video, poster?: string) => <VideoFacade id={v.id} title={v.title} channel={v.channel} playLabel={t.play} note={t.videoNote(v.channel)} poster={poster} />;
@@ -48,7 +48,7 @@ export default function War() {
                 <strong>{x.value[lang]}</strong>
                 <span>{x.label[lang]}</span>
                 <a href={x.source.url} target="_blank" rel="noreferrer">
-                  {x.source.name}, {x.date[lang]} ↗
+                  {sourceName(x.source, lang)}, {x.date[lang]} ↗
                 </a>
               </li>
             ))}
@@ -147,6 +147,9 @@ export default function War() {
   );
 }
 
+/** A source's name in the page's language (some have only one). */
+const sourceName = (src: Source, lang: 'uk' | 'en') => (typeof src.name === 'string' ? src.name : src.name[lang]);
+
 function Facts({ list, lang }: { list: Fact[]; lang: 'uk' | 'en' }) {
   return (
     <ul className="war-facts">
@@ -154,7 +157,7 @@ function Facts({ list, lang }: { list: Fact[]; lang: 'uk' | 'en' }) {
         <li key={f.text.en}>
           {f.text[lang]}{' '}
           <a href={f.source.url} target="_blank" rel="noreferrer">
-            {f.source.name} ↗
+            {sourceName(f.source, lang)} ↗
           </a>
         </li>
       ))}

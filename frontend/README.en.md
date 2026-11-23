@@ -1,4 +1,4 @@
-# Earth System Detective: frontend
+# Earth-System-Detective: frontend
 
 [Українська](README.md) | **English**
 

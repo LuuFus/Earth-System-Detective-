@@ -13,11 +13,10 @@ import type { Lang } from '../i18n/strings';
 import { FlowLayer, type Projection, type WindSampler } from './globe/flow';
 import { PointsLayer, type GlobePoints } from './globe/points';
 import { StationLayer, type Stations } from './globe/stations';
-import { doseFromColor } from '../data/safecast';
 import { PATHS } from './studio/Icon';
 
 const iconPath = (name: string) => PATHS[name] ?? PATHS.info;
-import { mercatorSource, stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmtsSource, type Box, type TileSource } from './globe/tiles';
+import { stackSource, TiledLayer, tiledGlsl, tiledUniforms, wmtsSource, type Box, type TileSource } from './globe/tiles';
 
 /** Where the camera starts: over Ukraine, pulled back to show the whole disc. */
 const START = { lat: 42, lon: 28 };
@@ -110,8 +109,6 @@ export type GlobeApi = {
   home: () => void;
   /** Fire story clock, hours since the story start (cheap: one uniform). */
   setStoryTime: (hours: number) => void;
-  /** Dose rate on the radiation map at a place (µSv/h), when it is shown there. */
-  sampleRadiation: (lat: number, lon: number) => number | null;
   /** The colour of the map layer at a place (RGBA), to read its value from the layer's colour map. */
   sampleImagery: (lat: number, lon: number) => [number, number, number, number] | null;
   /** The front layer's canvas was repainted in place (an animation): upload it again. */
@@ -146,10 +143,12 @@ type Props = {
   /** The station under the pointer (-1: none), with its screen position. */
   onStationHover?: (index: number, x: number, y: number) => void;
   onStationPick?: (index: number) => void;
+  /** Radiation stations: tags with the dose rate (µSv/h) inside. */
+  radStations?: Stations | null;
+  onRadHover?: (index: number, x: number, y: number) => void;
+  onRadPick?: (index: number) => void;
   /** Second vector layer: the front line (DeepState). */
   front?: GlobeVector | null;
-  /** Radiation background: Safecast's measurement map. */
-  radiation?: boolean;
   field?: GlobeField | null;
   wind?: GlobeWind | null;
   onHint?: (id: string) => void;
@@ -390,8 +389,8 @@ type Api = GlobeApi & {
   setFires: (points: GlobePoints | null) => void;
   setStoryTime: (hours: number) => void;
   setStations: (stations: Stations | null) => void;
+  setRadStations: (stations: Stations | null) => void;
   setFront: (vector: GlobeVector | null) => void;
-  setRadiation: (on: boolean) => void;
   setField: (field: GlobeField | null) => void;
   setWind: (wind: GlobeWind | null) => void;
   dispose: () => void;
@@ -401,6 +400,8 @@ type Callbacks = {
   onHintHover: (id: string | null, x: number, y: number) => void;
   onStationHover: (index: number, x: number, y: number) => void;
   onStationPick: (index: number) => void;
+  onRadHover: (index: number, x: number, y: number) => void;
+  onRadPick: (index: number) => void;
   onHover: (point: GlobePoint | null) => void;
   onPick: (point: GlobePoint) => void;
   onView: (view: GlobeView) => void;
@@ -723,28 +724,6 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   scene.add(fieldMesh);
   let fieldKey = '';
 
-  // Radiation background: Safecast's measurement map, reprojected from Web Mercator tiles.
-  const rad = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
-  const radUniforms = {
-    uOpacity: { value: 0.9 },
-    uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
-    uLand: land,
-    uLandOnly: { value: 0 },
-    uSplit: split,
-    uSide: { value: 0 },
-    ...tiledUniforms('uRad', rad),
-  };
-  const radMesh = new THREE.Mesh(
-    sphere,
-    new THREE.ShaderMaterial({ uniforms: radUniforms, vertexShader: vertex, fragmentShader: overlayFragment('uRad'), transparent: true, depthTest: false, depthWrite: false }),
-  );
-  radMesh.renderOrder = 2.2;
-  radMesh.visible = false;
-  scene.add(radMesh);
-  const RADIATION = mercatorSource('safecast', 'https://s3.amazonaws.com/te512.safecast.org/{z}/{x}/{y}.png', 15, 512);
-  /** Safecast's far-out tiles merge whole regions into big squares: the layer shows from here in. */
-  const RADIATION_FROM = 1.9;
-  let radOn = false;
 
   // Fires (now or a story) and measuring stations.
   const firePoints = new PointsLayer(2.8);
@@ -938,7 +917,6 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     frontLayer.updatePatch(box, px);
     if (light !== 'flat') night.updateView(box, px);
     if (relief) shade.updateView(box, px);
-    if (radMesh.visible) rad.updateView(box, px);
     const p = toLatLon(camera.position);
     cb.onView({ lat: p.lat, lon: p.lon, distance });
   };
@@ -973,29 +951,37 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const rect = canvas.getBoundingClientRect();
     return stationLayer.hit(e.clientX - rect.left, e.clientY - rect.top);
   };
+  const radAt = (e: PointerEvent) => {
+    if (!radLayer.active) return -1;
+    const rect = canvas.getBoundingClientRect();
+    return radLayer.hit(e.clientX - rect.left, e.clientY - rect.top);
+  };
   const onMove = (e: PointerEvent) => {
     if (e.pointerType !== 'mouse' || e.buttons) return;
     toNdc(e);
     pointerInside = true;
     pointerDirty = true;
+    const rect = canvas.getBoundingClientRect();
     const i = stationAt(e);
-    if (i !== stationLayer.hovered) {
+    const r = i >= 0 ? -1 : radAt(e);
+    if (i !== stationLayer.hovered || r !== radLayer.hovered) {
       stationLayer.hovered = i;
+      radLayer.hovered = r;
       stationsDirty = true;
-      canvas.style.cursor = i >= 0 ? 'pointer' : '';
+      canvas.style.cursor = i >= 0 || r >= 0 ? 'pointer' : '';
     }
-    if (i >= 0) {
-      const rect = canvas.getBoundingClientRect();
-      cb.onStationHover(i, e.clientX - rect.left, e.clientY - rect.top);
-    } else cb.onStationHover(-1, 0, 0);
+    cb.onStationHover(i, i >= 0 ? e.clientX - rect.left : 0, i >= 0 ? e.clientY - rect.top : 0);
+    cb.onRadHover(r, r >= 0 ? e.clientX - rect.left : 0, r >= 0 ? e.clientY - rect.top : 0);
   };
   const onLeave = () => {
     pointerInside = false;
     cb.onHover(null);
-    if (stationLayer.hovered >= 0) {
+    if (stationLayer.hovered >= 0 || radLayer.hovered >= 0) {
       stationLayer.hovered = -1;
+      radLayer.hovered = -1;
       stationsDirty = true;
       cb.onStationHover(-1, 0, 0);
+      cb.onRadHover(-1, 0, 0);
     }
   };
   const onDown = (e: PointerEvent) => {
@@ -1007,6 +993,12 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       if (station >= 0) {
         downAt = null;
         cb.onStationPick(station);
+        return;
+      }
+      const radStation = radAt(e);
+      if (radStation >= 0) {
+        downAt = null;
+        cb.onRadPick(radStation);
         return;
       }
       toNdc(e);
@@ -1148,10 +1140,13 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     },
     pixelsPerDegree: () => flowPpd,
   };
-  // Air-quality bubbles: a canvas above the wind lines.
+  // Air-quality bubbles and radiation tags: canvases above the wind lines.
   const stationLayer = new StationLayer('globe__stations');
   stationLayer.canvas.hidden = true;
   host.insertBefore(stationLayer.canvas, labelRenderer.domElement);
+  const radLayer = new StationLayer('globe__rad', 'tag');
+  radLayer.canvas.hidden = true;
+  host.insertBefore(radLayer.canvas, labelRenderer.domElement);
   let stationsDirty = false;
 
   const lastCamera = new THREE.Matrix4();
@@ -1184,6 +1179,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     labelRenderer.setSize(w, h);
     flow.resize(w, h, renderer.getPixelRatio());
     stationLayer.resize(w, h, renderer.getPixelRatio());
+    radLayer.resize(w, h, renderer.getPixelRatio());
     stationsDirty = true;
     for (const m of lineMaterials) m.resolution.set(w, h);
     split.value = splitFraction * renderer.domElement.width;
@@ -1219,20 +1215,13 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       needsRender = true;
     }
     const moved = cameraMoved();
-    if (radOn) {
-      const show = camera.position.length() < RADIATION_FROM;
-      if (show !== radMesh.visible) {
-        radMesh.visible = show;
-        needsRender = true;
-        if (show) scheduleView();
-      }
-    }
     if (moved) flow.clear();
     if (flow.active) flowFrame();
-    if (stationLayer.active && (moved || stationsDirty)) {
+    if ((stationLayer.active || radLayer.active) && (moved || stationsDirty)) {
       stationsDirty = false;
       flowDir.copy(camera.position).normalize();
-      stationLayer.draw(flowView);
+      if (stationLayer.active) stationLayer.draw(flowView);
+      if (radLayer.active) radLayer.draw(flowView);
     }
     if (!needsRender) return;
     needsRender = false;
@@ -1384,12 +1373,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       stationLayer.canvas.hidden = !next;
       stationsDirty = true;
     },
-    setRadiation(on) {
-      radOn = on;
-      radMesh.visible = on && camera.position.length() < RADIATION_FROM;
-      rad.setSource(on ? RADIATION : null);
-      requestRender();
-      scheduleView();
+    setRadStations(next) {
+      radLayer.set(next);
+      radLayer.canvas.hidden = !next;
+      stationsDirty = true;
     },
     setField(field) {
       if (!field) {
@@ -1419,12 +1406,6 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     sampleImagery(lat, lon) {
       if (!imageryMesh.visible) return null;
       return imagery.sample((lon + 180) / 360, (lat + 90) / 180);
-    },
-    sampleRadiation(lat, lon) {
-      if (!radMesh.visible) return null;
-      const c = rad.sample((lon + 180) / 360, (lat + 90) / 180);
-      if (!c || c[3] < 200) return null;
-      return doseFromColor(c[0], c[1], c[2]);
     },
     zoomBy(factor) {
       const p = toLatLon(camera.position);
@@ -1640,9 +1621,9 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       frontLayer.dispose();
       night.dispose();
       shade.dispose();
-      rad.dispose();
       firePoints.dispose();
       stationLayer.canvas.remove();
+      radLayer.canvas.remove();
       fieldUniforms.uField.value.dispose();
       earthUniforms.uFallback.value.dispose();
       flow.canvas.remove();
@@ -1688,6 +1669,8 @@ export function Globe(props: Props) {
         onStationHover: (i, x, y) => latest.current.onStationHover?.(i, x, y),
         onHintHover: (id, x, y) => latest.current.onHintHover?.(id, x, y),
         onStationPick: (i) => latest.current.onStationPick?.(i),
+        onRadHover: (i, x, y) => latest.current.onRadHover?.(i, x, y),
+        onRadPick: (i) => latest.current.onRadPick?.(i),
       },
     );
     if (!created) setFailed(true);
@@ -1728,8 +1711,8 @@ export function Globe(props: Props) {
   }, [storyTime, fires]);
   const stations = props.stations ?? null;
   useEffect(() => api.current?.setStations(stations), [stations]);
-  const radiation = props.radiation ?? false;
-  useEffect(() => api.current?.setRadiation(radiation), [radiation]);
+  const radStations = props.radStations ?? null;
+  useEffect(() => api.current?.setRadStations(radStations), [radStations]);
   const field = props.field ?? null;
   useEffect(() => api.current?.setField(field), [field]);
   const wind = props.wind ?? null;

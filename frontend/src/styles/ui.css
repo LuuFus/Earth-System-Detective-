@@ -487,6 +487,7 @@ input:disabled + .switch__track {
 }
 
 .topbar__home {
+  min-width: 0;
   color: var(--text-1);
   text-decoration: none;
 }
@@ -634,9 +635,17 @@ input:disabled + .switch__track {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  max-width: 100%;
   font: 600 var(--fs-base) / 1 var(--font-body);
   letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+/* On a narrow screen the name gives way to the buttons beside it. */
+.wordmark__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .wordmark__mark {
@@ -698,6 +707,8 @@ input:disabled + .switch__track {
   position: relative;
   isolation: isolate;
   display: grid;
+  /* One column as wide as the screen: wide content must wrap, not push the page past the edge. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   height: 100svh;
   min-height: 600px;
@@ -974,7 +985,8 @@ input:disabled + .switch__track {
 }
 
 .globe__flow,
-.globe__stations {
+.globe__stations,
+.globe__rad {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -2521,7 +2533,8 @@ input:disabled + .switch__track {
 }
 
 .weather-map__flow,
-.weather-map__stations {
+.weather-map__stations,
+.weather-map__rad {
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -3181,6 +3194,13 @@ input:disabled + .switch__track {
   overflow-y: auto;
   scrollbar-width: thin;
   pointer-events: auto;
+}
+
+.air-card__meaning {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
 }
 
 .air-card__advice,
@@ -4477,7 +4497,8 @@ details[open] > summary {
   pointer-events: auto;
 }
 
-.weather-map__stations {
+.weather-map__stations,
+.weather-map__rad {
   z-index: 3;
 }
 
@@ -5135,12 +5156,25 @@ details[open] > summary {
   grid-column: span 6;
 }
 
-.city-fires {
-  grid-column: span 5;
+.city-fires,
+.city-rad {
+  grid-column: span 6;
 }
 
 .city-climate {
-  grid-column: span 7;
+  grid-column: span 12;
+}
+
+.city-rad__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.city-rad__value strong {
+  font-size: var(--fs-lg);
 }
 
 .city-now__body {
@@ -5424,6 +5458,7 @@ svg.city-chart {
   .city-air,
   .city-forecast,
   .city-fires,
+  .city-rad,
   .city-climate {
     grid-column: 1 / -1;
   }
@@ -5470,6 +5505,8 @@ a.chip-btn {
 
 .war__inner {
   display: grid;
+  /* One column no wider than the screen: wide pictures and rows must shrink, not push the page. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-7);
   max-width: 1120px;
   margin: 0 auto;
@@ -5551,6 +5588,7 @@ a.chip-btn {
 
 .war-topic {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
   padding-top: var(--space-6);
   border-top: 1px solid var(--line);
@@ -5569,12 +5607,13 @@ a.chip-btn {
 
 .war-topic__compare {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: var(--space-4);
 }
 
 .war-compare {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   margin: 0;
 }

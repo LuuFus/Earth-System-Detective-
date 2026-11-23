@@ -1,4 +1,4 @@
-# Design: Earth System Detective
+# Design: Earth-System-Detective
 
 **Revision 2026-11-19 ("mix").** The poster style (square chips, uppercase serif, navy glass)
 was replaced: layout after Google Earth, surfaces and motion after Design Bookmark's Motion

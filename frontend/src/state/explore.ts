@@ -59,7 +59,7 @@ export type ExploreState = {
   light: Light;
   /** Fires of the last 48 hours (NASA FIRMS). */
   liveFires: boolean;
-  /** Ukraine card layers: air quality (SaveEcoBot), radiation (Safecast), the front (DeepState). */
+  /** Ukraine card layers: air quality (SaveEcoBot), radiation (SaveEcoBot stations), the front (DeepState). */
   aqi: boolean;
   radiation: boolean;
   front: boolean;
@@ -308,7 +308,8 @@ export function toQuery(state: ExploreState, view: CameraView | null): string {
   const b = encodeRegion(state.regionB);
   if (a) q.set('a', a);
   if (b) q.set('bb', b);
-  if (state.chartVariable !== 'gistemp') q.set('cv', state.chartVariable);
+  // The chart follows the map layer unless it was set to something else.
+  if (state.chartVariable !== chartFor(state.variable, 'gistemp')) q.set('cv', state.chartVariable);
   if (state.chartView !== 'year') q.set('cr', state.chartView);
   if (state.compare !== null) q.set('cmp', String(state.compare));
   const on = [
@@ -358,6 +359,8 @@ export function fromQuery(search: string): { state: Partial<ExploreState>; view:
   if (b) state.regionB = b;
   const cv = q.get('cv');
   if (cv && cv in variableById && variableById[cv as VariableId].series) state.chartVariable = cv as VariableId;
+  // A link with a layer and no chart (from "Ask the Earth", say) charts that layer.
+  else if (state.variable) state.chartVariable = chartFor(state.variable, 'gistemp');
   const cr = q.get('cr');
   if (cr === 'month' || cr === 'day' || cr === 'cycle') state.chartView = cr;
   const cmp = Number(q.get('cmp'));
@@ -371,7 +374,7 @@ export function fromQuery(search: string): { state: Partial<ExploreState>; view:
   if (on.has('blackout') && state.variable === 'nightlights') state.blackout = true;
   if (on.has('wind')) state.wind = true;
   const panel = q.get('panel');
-  if (panel === 'fires' || panel === 'ukraine' || panel === 'weather' || panel === 'layers' || panel === 'cases') state.panel = panel;
+  if (panel === 'fires' || panel === 'ukraine' || panel === 'weather' || panel === 'layers' || panel === 'cases' || panel === 'glossary' || panel === 'share') state.panel = panel;
   const light = q.get('light');
   if (light === 'sun' || light === 'night') state.light = light;
   const fld = q.get('f');
