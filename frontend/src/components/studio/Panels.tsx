@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { entryText, loadColorMap, type ColorMap } from '../../data/colormaps';
 import { useLiveText } from '../../i18n/live';
 import { cases, type Case, type GistempMode } from '../../data/cases';
 import { RAMP_CSS } from '../../data/gistemp';
-import { glossary } from '../../data/glossary';
+import { GLOSSARY_GROUPS, glossary, type GlossaryGroup, type Term } from '../../data/glossary';
 import type { WarData } from '../../data/war';
 import { groups, imageryDate, variableById, variables, type VariableId } from '../../data/variables';
 import { RANGE } from '../../hooks/useClimateLayer';
@@ -11,21 +11,125 @@ import { useI18n } from '../../i18n/I18n';
 import { numberFormat } from '../../i18n/format';
 import { useStudio } from '../../i18n/useStudio';
 import type { LabelLayers } from '../../state/explore';
-import { HINT_KINDS, type HintKind } from '../../data/hints';
+import { HINT_KINDS, hintsByDate, inTopic, whenText, type Hint, type HintKind, type NewsTopic } from '../../data/hints';
 import { photos, photoUrl, type Photo } from '../../data/photos';
 import { Icon, type IconName } from './Icon';
 
+const FLYOUT_MIN = 300;
+const FLYOUT_DEFAULT = 360;
+const FLYOUT_WIDE = 600;
+const FLYOUT_KEY = 'esd-flyout-width';
+
+/** The widest the panel may be: the globe keeps at least a third of the window. */
+function flyoutMax(): number {
+  return Math.max(FLYOUT_MIN, Math.min(900, Math.round(window.innerWidth * 0.62) - 80));
+}
+
+function storedWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(FLYOUT_KEY));
+    return Number.isFinite(v) && v >= FLYOUT_MIN ? v : FLYOUT_DEFAULT;
+  } catch {
+    return FLYOUT_DEFAULT;
+  }
+}
+
+/**
+ * The panel that slides out of the tool rail. Its right edge can be dragged (or moved with the
+ * arrow keys) to make it wider or narrower, and a button in the header switches between the
+ * usual and a wide panel. The width is kept for the next visit.
+ */
 export function Flyout({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const s = useStudio();
+  const ref = useRef<HTMLElement>(null);
+  const [width, setWidth] = useState(storedWidth);
+  const [dragging, setDragging] = useState(false);
+  const clamp = (w: number) => Math.round(Math.min(flyoutMax(), Math.max(FLYOUT_MIN, w)));
+  const shown = clamp(width);
+
+  // The width lives on the studio, so the parts placed next to the panel (the fire-story player) follow it.
+  useLayoutEffect(() => {
+    const host = ref.current?.closest<HTMLElement>('.studio') ?? ref.current;
+    host?.style.setProperty('--flyout-w', `${shown}px`);
+  }, [shown]);
+  useEffect(() => {
+    if (dragging) return;
+    try {
+      localStorage.setItem(FLYOUT_KEY, String(width));
+    } catch {
+      // Private mode: the width just is not remembered.
+    }
+  }, [width, dragging]);
+  // A smaller window may no longer fit a wide panel.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const on = () => setTick((n) => n + 1);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const x0 = e.clientX;
+    const w0 = ref.current?.getBoundingClientRect().width ?? shown;
+    handle.setPointerCapture(e.pointerId);
+    setDragging(true);
+    const move = (ev: PointerEvent) => setWidth(clamp(w0 + ev.clientX - x0));
+    const up = () => {
+      setDragging(false);
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  };
+  const onKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 80 : 32;
+    const next = e.key === 'ArrowRight' ? shown + step : e.key === 'ArrowLeft' ? shown - step : e.key === 'Home' ? FLYOUT_MIN : e.key === 'End' ? flyoutMax() : null;
+    if (next === null) return;
+    e.preventDefault();
+    setWidth(clamp(next));
+  };
+  const wide = shown >= (FLYOUT_DEFAULT + FLYOUT_WIDE) / 2;
+
   return (
-    <section className="flyout" id="studio-panel" aria-label={title}>
+    <section ref={ref} className={`flyout${dragging ? ' flyout--dragging' : ''}`} id="studio-panel" aria-label={title}>
       <header className="flyout__head">
         <h2 className="flyout__title">{title}</h2>
-        <button type="button" className="icon-btn icon-btn--bare" aria-label={s.close} onClick={onClose}>
-          <Icon name="close" size={18} />
-        </button>
+        <div className="flyout__tools">
+          <button
+            type="button"
+            className="icon-btn icon-btn--bare flyout__wide"
+            aria-label={wide ? s.flyout.narrower : s.flyout.wider}
+            title={wide ? s.flyout.narrower : s.flyout.wider}
+            onClick={() => setWidth(clamp(wide ? FLYOUT_DEFAULT : FLYOUT_WIDE))}
+          >
+            <Icon name={wide ? 'narrow' : 'widen'} size={18} />
+          </button>
+          <button type="button" className="icon-btn icon-btn--bare" aria-label={s.close} onClick={onClose}>
+            <Icon name="close" size={18} />
+          </button>
+        </div>
       </header>
       <div className="flyout__body">{children}</div>
+      <div
+        className="flyout__resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={s.flyout.resize}
+        title={s.flyout.resize}
+        aria-valuemin={FLYOUT_MIN}
+        aria-valuemax={flyoutMax()}
+        aria-valuenow={shown}
+        tabIndex={0}
+        onPointerDown={startDrag}
+        onKeyDown={onKey}
+        onDoubleClick={() => setWidth(FLYOUT_DEFAULT)}
+      />
     </section>
   );
 }
@@ -39,6 +143,8 @@ type LayersProps = {
   labels: LabelLayers;
   year: number;
   month: number;
+  /** An event's exact day for daily imagery, or null. */
+  day?: string | null;
   from: number;
   to: number;
   globalValue: number | null;
@@ -205,7 +311,7 @@ export function WarLegend({ data, status }: { data: WarData | null; status: 'idl
   );
 }
 
-export function Legend(p: Pick<LayersProps, 'variable' | 'mode' | 'year' | 'month' | 'from' | 'to' | 'globalValue'>) {
+export function Legend(p: Pick<LayersProps, 'variable' | 'mode' | 'year' | 'month' | 'day' | 'from' | 'to' | 'globalValue'>) {
   const { lang } = useI18n();
   const s = useStudio();
   const v = p.variable ? variableById[p.variable] : null;
@@ -241,7 +347,8 @@ export function Legend(p: Pick<LayersProps, 'variable' | 'mode' | 'year' | 'mont
 
   if (!v.imagery) return null;
   const url = `https://gibs.earthdata.nasa.gov/legends/${v.imagery.layer}_H.svg`;
-  const date = v.imagery.time === 'daily' ? imageryDate(v.imagery, p.year) : imageryDate(v.imagery, p.year, p.month);
+  const exact = p.day && v.imagery.time === 'daily' && p.day.startsWith(String(p.year)) ? p.day : null;
+  const date = exact ?? (v.imagery.time === 'daily' ? imageryDate(v.imagery, p.year) : imageryDate(v.imagery, p.year, p.month));
   return (
     <figure className="legend">
       <figcaption className="legend__title">
@@ -285,6 +392,76 @@ const CASE_LOOK: Record<string, { photo?: Photo; kind: HintKind }> = {
   'ukraine-war': { photo: photos.kyivDark, kind: 'war' },
 };
 
+type EventsProps = {
+  activeId: string | null;
+  onOpen: (c: Case) => void;
+  /** The news item open on the right, if any. */
+  newsId: string | null;
+  onNews: (h: Hint) => void;
+};
+
+/** The Events panel: news with dates, places, causes and consequences, and the investigations. */
+export function EventsPanel(p: EventsProps) {
+  const t = useLiveText().event;
+  const [tab, setTab] = useState<'news' | 'cases'>('news');
+  return (
+    <>
+      <div className="seg" role="tablist" aria-label={t.tabs.news}>
+        {(['news', 'cases'] as const).map((k) => (
+          <button key={k} type="button" role="tab" className="seg__btn" aria-selected={tab === k} aria-pressed={tab === k} onClick={() => setTab(k)}>
+            {t.tabs[k]}
+          </button>
+        ))}
+      </div>
+      {tab === 'news' ? <NewsList activeId={p.newsId} onOpen={p.onNews} /> : <CasesPanel activeId={p.activeId} onOpen={p.onOpen} />}
+    </>
+  );
+}
+
+function NewsList({ activeId, onOpen }: { activeId: string | null; onOpen: (h: Hint) => void }) {
+  const { lang } = useI18n();
+  const t = useLiveText().event;
+  const [topic, setTopic] = useState<NewsTopic>('all');
+  const list = hintsByDate.filter((h) => inTopic(h, topic));
+  return (
+    <>
+      <p className="note">{t.newsIntro}</p>
+      <div className="chips" role="group" aria-label={t.tabs.news}>
+        {(Object.keys(t.topics) as NewsTopic[]).map((k) => (
+          <button key={k} type="button" className="chip-btn" aria-pressed={topic === k} onClick={() => setTopic(k)}>
+            {t.topics[k]}
+          </button>
+        ))}
+      </div>
+      <p className="news-count">{t.count(list.length)}</p>
+      <ol className="news">
+        {list.map((h) => {
+          const k = HINT_KINDS[h.kind];
+          return (
+            <li key={h.id}>
+              <button type="button" className="news-card" aria-current={activeId === h.id ? 'true' : undefined} onClick={() => onOpen(h)}>
+                <span className="news-card__img" style={{ ['--hint' as string]: k.color }}>
+                  {h.photo ? <img src={photoUrl(h.photo, 240)} alt="" loading="lazy" /> : <Icon name={k.icon as IconName} size={26} />}
+                  <span className="case-card__kind">
+                    <Icon name={k.icon as IconName} size={12} />
+                  </span>
+                </span>
+                <span className="news-card__words">
+                  <time className="news-card__date" dateTime={h.when.from}>
+                    {whenText(h.when, lang)}
+                  </time>
+                  <span className="news-card__title">{h.title[lang]}</span>
+                  <span className="news-card__place">{h.place[lang]}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </>
+  );
+}
+
 export function CasesPanel({ activeId, onOpen }: { activeId: string | null; onOpen: (c: Case) => void }) {
   const { lang } = useI18n();
   const s = useStudio();
@@ -319,17 +496,92 @@ export function CasesPanel({ activeId, onOpen }: { activeId: string | null; onOp
 
 // ---------- Glossary ----------
 
+/** A formula line with x_i, Σ_{i<j} and ^(2/3) written as real subscripts and superscripts. */
+function FormulaLine({ text }: { text: string }) {
+  const out: ReactNode[] = [];
+  const re = /_\{([^}]*)\}|_([A-Za-z0-9.]+)|\^\(([^)]*)\)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(m[3] !== undefined ? <sup key={m.index}>{m[3]}</sup> : <sub key={m.index}>{m[1] ?? m[2]}</sub>);
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return <span className="gloss-formula__line">{out}</span>;
+}
+
+/** Every term with its formula, how to read the numbers, an example and where it is on the site. */
 export function GlossaryPanel() {
   const { lang } = useI18n();
+  const t = useLiveText().glossary;
+  const [query, setQuery] = useState('');
+  const [group, setGroup] = useState<GlossaryGroup | 'all'>('all');
+  const q = query.trim().toLowerCase();
+  const match = (g: Term) =>
+    (group === 'all' || g.group === group) &&
+    (!q || [g.term[lang], g.text[lang], g.values?.[lang] ?? '', g.example?.[lang] ?? ''].some((x) => x.toLowerCase().includes(q)));
+  const shown = GLOSSARY_GROUPS.map((gr) => ({ ...gr, terms: glossary.filter((g) => g.group === gr.id && match(g)) })).filter((gr) => gr.terms.length);
   return (
-    <dl className="glossary">
-      {glossary.map((g) => (
-        <div key={g.id} className="glossary__item" id={`term-${g.id}`}>
-          <dt>{g.term[lang]}</dt>
-          <dd>{g.text[lang]}</dd>
-        </div>
+    <div className="gloss">
+      <p className="note">{t.intro}</p>
+      <label className="field gloss__search">
+        <span className="visually-hidden">{t.search}</span>
+        <Icon name="search" size={16} />
+        <input className="field__input" type="search" value={query} placeholder={t.search} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      <div className="chips" role="group" aria-label={t.groups}>
+        <button type="button" className="chip-btn" aria-pressed={group === 'all'} onClick={() => setGroup('all')}>
+          {t.all}
+        </button>
+        {GLOSSARY_GROUPS.map((gr) => (
+          <button key={gr.id} type="button" className="chip-btn" aria-pressed={group === gr.id} onClick={() => setGroup(gr.id)}>
+            {gr.name[lang]}
+          </button>
+        ))}
+      </div>
+      {!shown.length && <p className="note">{t.nothing}</p>}
+      {shown.map((gr) => (
+        <section key={gr.id} className="gloss__group" aria-label={gr.name[lang]}>
+          <h3 className="gloss__group-title">{gr.name[lang]}</h3>
+          {gr.terms.map((g) => (
+            <article key={g.id} className="gloss-term" id={`term-${g.id}`}>
+              <h4 className="gloss-term__name">{g.term[lang]}</h4>
+              <p className="gloss-term__text">{g.text[lang]}</p>
+              {g.formula && (
+                <div className="gloss-formula" role="math" aria-label={t.formula}>
+                  <span className="gloss-term__label">{t.formula}</span>
+                  {g.formula.map((f, i) => (
+                    <FormulaLine key={i} text={typeof f === 'string' ? (lang === 'en' ? f.replace(/(\d),(\d)/g, '$1.$2') : f) : f[lang]} />
+                  ))}
+                  {g.symbols && <p className="gloss-formula__symbols">{g.symbols[lang]}</p>}
+                </div>
+              )}
+              <dl className="gloss-term__rows">
+                {g.values && (
+                  <div>
+                    <dt>{t.values}</dt>
+                    <dd>{g.values[lang]}</dd>
+                  </div>
+                )}
+                {g.example && (
+                  <div>
+                    <dt>{t.example}</dt>
+                    <dd>{g.example[lang]}</dd>
+                  </div>
+                )}
+                {g.where && (
+                  <div>
+                    <dt>{t.where}</dt>
+                    <dd>{g.where[lang]}</dd>
+                  </div>
+                )}
+              </dl>
+            </article>
+          ))}
+        </section>
       ))}
-    </dl>
+    </div>
   );
 }
 

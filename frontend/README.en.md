@@ -184,6 +184,7 @@ Other scripts:
 python data-pipeline/build_ozone.py        # NASA Ozone Watch: ozone hole area by year
 python data-pipeline/build_occupation.py   # official list of occupied territories + OSM hromada boundaries
 python data-pipeline/build_geo.py          # Natural Earth: country outlines, capitals, seas, rivers
+python data-pipeline/build_front_history.py # DeepState: occupied territory weekly since April 2022 (≈ 250 versions, cached in cache/front)
 ```
 
 `build_geo.py` downloads Natural Earth layers (about 20 MB of GeoJSON from

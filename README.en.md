@@ -81,7 +81,9 @@ The screenshots show the Ukrainian interface; the site switches to English with 
 
 The main screen (`/explore`) is a Three.js globe with NASA GIBS satellite imagery and relief. On the
 left, a tool column: **Layers, Fires, Ukraine, Weather, Analysis, Events, Glossary, Share**; in the
-middle, country search and a 3D / 2D switch; at the bottom, a timeline.
+middle, country search and a 3D / 2D switch; at the bottom, a timeline. The panel that slides out on
+the left can be **made wider or narrower**: drag its right edge (or use ← → on the keyboard; a button
+in its header switches between the usual and a wide panel); the width is remembered.
 
 - **20+ NASA layers on shelves**: temperature (GISTEMP anomaly since 1880, air, land surface, sea),
   water (GPM and MERRA-2 rain, water vapour, humidity, soil moisture, snow, sea ice), air (nitrogen
@@ -90,6 +92,10 @@ middle, country search and a 3D / 2D switch; at the bottom, a timeline.
 - **Layer hints**: each layer has a scale with numbers and units and an explanation of the colours;
   the pointer shows the value at a place in words.
 - **Year player**: "From" — the year to play from to the latest; the bottom bar folds away.
+- **Glossary**: over 40 terms in four sections (trends and statistics, data from space, air, fires and
+  war) with search. Each has a plain-words definition, the **formula** (Mann-Kendall, Sen's slope, AQI,
+  NDVI, optical depth…), **how to read the numbers** (thresholds, units, WHO guidelines), a worked
+  example and where it appears on the site.
 - **Zoom to street level**: close up the globe loads a sharper image of the visible area, and gaps
   between satellite passes are filled from neighbouring values, so layers do not break into "pixels".
 - **Borders and names**: country borders (Crimea as part of Ukraine), capitals, seas, rivers.
@@ -119,9 +125,9 @@ power grid) under a before/after slider.
   Suomi NPP satellites, 375 m) and MODIS (Terra, Aqua, 1 km). The colour shows how many hours ago the
   fire was seen. Updated every hour; NASA publishes detections about 1–3 hours after the overpass.
 - **Ukraine over 7 days**: the number of fires and a chart by day.
-- **Big fires day by day**: the Chornobyl zone (April 2020), Luhansk region (September–October 2020),
-  the front (2022), Evia and Turkey (2021), Quebec (2023). You see fire flare up, smoulder and leave a
-  burn scar.
+- **Big fires day by day**: Los Angeles (January 2025), Quebec (2023), the front (2022), Evia and
+  Turkey (2021), the Chornobyl zone and Luhansk region (2020), spring field burning in Ukraine (April
+  2018). You see fire flare up, smoulder and leave a burn scar.
 
 ![The Chornobyl zone fire, April 2020](docs/screenshots/fire-story.jpg)
 
@@ -132,15 +138,21 @@ power grid) under a before/after slider.
 A separate 2D map (`/map?mode=ukraine`, MapLibre): Ukraine highlighted, its neighbours dimmed (zoomed
 out to the world the dimming fades). Map styles: relief, satellite, OpenStreetMap.
 
-- **Air quality**: the AQI (US EPA scale) inside each bubble, coloured from "good" to "hazardous".
+- **Air quality**: the AQI (US EPA scale) inside each bubble, coloured from "clean" to "hazardous".
   Data from SaveEcoBot, Sensor.Community open sensors and, with a token, the World Air Quality Index
   (WAQI). Readings older than 3 hours are drawn faded.
-- **Station card**: the district (OpenStreetMap), the main pollutant, PM2.5, PM10, NO₂, O₃, SO₂ and CO
-  sub-indices, and what the data show nearby: fires, still air, rain, humidity, dust and gases from
-  the Copernicus CAMS model.
-- **The DeepState front line** with its history since April 2022; **occupied communities** from the
-  official list of Ukraine's Ministry of Development; **radiation** from Safecast in µSv/h; **fires**
-  from NASA FIRMS.
+- **Station card** in plain words: "Unhealthy air — harmful for everyone", **what we advise against**
+  (running, airing the home, burning leaves…), **what helps** (an FFP2 respirator, an air purifier) and
+  **why the air may be like this** (smoke from burning grass and stoves, road dust, exhaust). Pinned, it
+  also shows the district, the main pollutant, PM2.5, PM10, NO₂, O₃, SO₂ and CO sub-indices, and what the
+  data show nearby: fires, still air, rain, humidity, dust and gases from the Copernicus CAMS model.
+- **Occupied territory and the DeepState front line**; **occupied communities** from the official list
+  of Ukraine's Ministry of Development; **radiation** from Safecast in µSv/h; **fires** from NASA FIRMS.
+- **Occupation timeline since 2022** (on the map and on the 3D Earth): a week-by-week player from the
+  line before 24 February 2022 to today. The weeks dissolve smoothly into each other; what was captured
+  in the last 4 weeks glows amber, what was liberated blue. Above the slider: the date, the occupied
+  area (≈ km² and % of Ukraine), what was captured and liberated that week, and a chart of the area
+  with key dates (the north, Kharkiv, Kherson, Bakhmut, Avdiivka); click the chart to jump to a date.
 - The **weather forecast** can go over the map.
 
 ![Station card: the main pollutant and what is nearby](docs/screenshots/air-card.jpg)
@@ -254,10 +266,13 @@ checks it for a trend.
 ![The list of events with photos](docs/screenshots/events.jpg)
 
 Events visible from space: fires, deforestation, droughts, floods, melting ice, volcanoes, air
-pollution, heat, war. On the globe they are markers by category; in the Events section, a list with
-photos. Pick one and the camera flies there and turns on the right layer. Each says **what happened,
-why, who or what caused it and what can be done**, with Wikimedia Commons photos (authors and
-licences given) and links to sources.
+pollution, heat, war. On the globe they are markers by category; the Events section has two tabs:
+**News** (every event, newest first, filtered by "Ukraine", "Fires", "Water and drought"…) and
+**Investigations**. Each news item gives **when** (the exact date or span, e.g. "7–31 January 2025"),
+**where**, what happened, the **main causes**, the **consequences** with numbers, what can be done,
+Wikimedia Commons photos (authors and licences given) and sources. Buttons on the card show the event
+on the globe **for those very days**: NASA FIRMS fire points day by day, a layer on the exact date
+(rain, NO₂, an image) or a before/after comparison (the 2021 and 2022 blackout).
 
 ![An event card: the drying of the Aral Sea](docs/screenshots/event.jpg)
 
@@ -297,6 +312,9 @@ collect the data and publish it as files.
 - The same script fetches the CAMS air quality forecast (Open-Meteo) twice a day on a 0.5° grid
   over Ukraine and its neighbours; in between it reuses the one already published.
 - `build_fire_stories.py` — big fires from the FIRMS archives.
+- `build_front_history.py` — the occupation timeline: one DeepState map version a week since April
+  2022, only what is occupied inside Ukraine; areas counted on a 0.005° grid, outlines simplified
+  (numpy only).
 - Other scripts prepare GISTEMP, the ozone hole, NO₂ and MODIS over Ukraine, occupied communities,
   Natural Earth borders and names.
 

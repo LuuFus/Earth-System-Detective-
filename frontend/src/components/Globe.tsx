@@ -114,6 +114,8 @@ export type GlobeApi = {
   sampleRadiation: (lat: number, lon: number) => number | null;
   /** The colour of the map layer at a place (RGBA), to read its value from the layer's colour map. */
   sampleImagery: (lat: number, lon: number) => [number, number, number, number] | null;
+  /** The front layer's canvas was repainted in place (an animation): upload it again. */
+  touchFront: () => void;
 };
 
 type Props = {
@@ -692,6 +694,14 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         mesh.visible = true;
         requestRender();
         scheduleView();
+      },
+      /** The same canvas was repainted: upload it again; the sharp close-up patch is redrawn when asked. */
+      touch() {
+        if (!vector || !mesh.visible) return;
+        uniforms.uVec.value.needsUpdate = true;
+        clearPatch();
+        requestRender();
+        if (vector.draw) scheduleView();
       },
       dispose() {
         uniforms.uVec.value.dispose();
@@ -1339,6 +1349,9 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     },
     setFront(next) {
       frontLayer.set(next);
+    },
+    touchFront() {
+      frontLayer.touch();
     },
     setLight(next) {
       light = next;

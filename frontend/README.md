@@ -178,6 +178,7 @@ python data-pipeline/build_gistemp.py --refresh  # скачати найсвіж
 python data-pipeline/build_ozone.py        # NASA Ozone Watch: площа озонової діри по роках
 python data-pipeline/build_occupation.py   # офіційний перелік ТОТ + межі громад з OpenStreetMap
 python data-pipeline/build_geo.py          # Natural Earth: кордони країн, столиці, моря, річки
+python data-pipeline/build_front_history.py # DeepState: окуповане щотижня з квітня 2022 (≈ 250 версій, кеш у cache/front)
 ```
 
 `build_geo.py` качає шари Natural Earth (~20 МБ GeoJSON з

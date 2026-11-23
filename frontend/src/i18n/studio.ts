@@ -3,6 +3,7 @@ import type { Lang } from './strings';
 const uk = {
   rail: { label: 'Інструменти', layers: 'Шари', fires: 'Пожежі', ukraine: 'Україна', cases: 'Події', analysis: 'Аналіз', weather: 'Погода', glossary: 'Глосарій', share: 'Поділитися' },
   close: 'Закрити',
+  flyout: { wider: 'Розширити панель', narrower: 'Звузити панель', resize: 'Ширина панелі: тягніть край або натискайте ← →' },
   layers: {
     title: 'Шари',
     borders: 'Кордони й назви країн',
@@ -256,6 +257,7 @@ export type Studio = typeof uk;
 const en: Studio = {
   rail: { label: 'Tools', layers: 'Layers', fires: 'Fires', ukraine: 'Ukraine', cases: 'Events', analysis: 'Analysis', weather: 'Weather', glossary: 'Glossary', share: 'Share' },
   close: 'Close',
+  flyout: { wider: 'Widen the panel', narrower: 'Narrow the panel', resize: 'Panel width: drag the edge or press ← →' },
   layers: {
     title: 'Layers',
     borders: 'Borders and country names',

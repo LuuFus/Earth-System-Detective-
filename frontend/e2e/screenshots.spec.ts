@@ -111,6 +111,7 @@ test.describe('desktop', () => {
   test('events', async ({ page }) => {
     await open(page, '/explore?panel=cases&cam=38.00,25.00,3.30', 9000);
     await save(page, 'events');
+    await page.getByRole('tab', { name: 'Дослідження' }).click();
     await clickText(page, 'Висихання Аральського моря');
     await page.waitForTimeout(18000);
     await save(page, 'event');

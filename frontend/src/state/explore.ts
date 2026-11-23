@@ -25,6 +25,8 @@ export type ExploreState = {
   /** Map year, and month for monthly imagery. */
   year: number;
   month: number;
+  /** An exact day for daily imagery (YYYY-MM-DD), set by an event; null uses the layer's own day. */
+  day: string | null;
   /** Period for trends, comparisons and the chart. */
   from: number;
   to: number;
@@ -73,6 +75,7 @@ export const initialState: ExploreState = {
   gistempMode: 'trend',
   year: 2025,
   month: 7,
+  day: null,
   from: 1960,
   to: 2025,
   season: 'year',
@@ -129,6 +132,8 @@ export type Action =
   | { type: 'case'; c: Case }
   | { type: 'set'; state: Partial<Pick<ExploreState, 'relief' | 'light' | 'liveFires' | 'aqi' | 'radiation' | 'front' | 'wind' | 'field'>> }
   | { type: 'blackout'; on: boolean }
+  /** An event's layer on its exact day. */
+  | { type: 'show'; variable: VariableId; date: string }
   | { type: 'hydrate'; state: Partial<ExploreState> };
 
 /** Numeric variable that best matches the map layer. */
@@ -147,12 +152,12 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         const first = Number(v.imagery.first.slice(0, 4));
         year = Math.min(last, Math.max(first, year));
       }
-      return { ...state, variable: action.id, year, chartVariable: chartFor(action.id, state.chartVariable), caseId: null, playing: false, blackout: state.blackout && action.id === 'nightlights' };
+      return { ...state, variable: action.id, year, chartVariable: chartFor(action.id, state.chartVariable), caseId: null, playing: false, day: null, blackout: state.blackout && action.id === 'nightlights' };
     }
     case 'mode':
       return { ...state, gistempMode: action.mode, playing: false };
     case 'year':
-      return { ...state, year: action.year };
+      return { ...state, year: action.year, day: state.day?.startsWith(String(action.year)) ? state.day : null };
     case 'compare':
       // The shutter compares two years of the map, so GISTEMP shows single years.
       return {
@@ -163,7 +168,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         gistempMode: action.year !== null && state.variable === 'gistemp' ? 'year' : state.gistempMode,
       };
     case 'month':
-      return { ...state, month: action.month };
+      return { ...state, month: action.month, day: null };
     case 'period':
       return { ...state, from: Math.min(action.from, action.to), to: Math.max(action.from, action.to) };
     case 'season':
@@ -225,6 +230,7 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         chartVariable: c.analysisVariable ?? chartFor(c.variable, state.chartVariable),
         chartView: c.chartView ?? 'year',
         caseId: c.id,
+        day: null,
         picking: null,
         analysisOpen: true,
         playing: false,
@@ -236,8 +242,25 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
     case 'blackout':
       // Night lights with the shutter: left before (2021), right during the blackouts (2022).
       return action.on
-        ? { ...state, blackout: true, variable: 'nightlights', year: 2022, compare: 2021, playing: false, caseId: null }
+        ? { ...state, blackout: true, variable: 'nightlights', year: 2022, compare: 2021, playing: false, caseId: null, day: null }
         : { ...state, blackout: false, compare: null, variable: state.variable === 'nightlights' ? null : state.variable };
+    case 'show': {
+      const year = Number(action.date.slice(0, 4));
+      const month = Number(action.date.slice(5, 7)) || state.month;
+      return {
+        ...state,
+        variable: action.variable,
+        year,
+        month,
+        day: action.date.length === 10 ? action.date : null,
+        chartVariable: chartFor(action.variable, state.chartVariable),
+        compare: null,
+        blackout: false,
+        playing: false,
+        caseId: null,
+        gistempMode: action.variable === 'gistemp' ? 'year' : state.gistempMode,
+      };
+    }
     case 'hydrate':
       return { ...state, ...action.state };
   }
@@ -276,6 +299,7 @@ export function toQuery(state: ExploreState, view: CameraView | null): string {
   if (state.variable === 'gistemp') q.set('m', state.gistempMode);
   q.set('y', String(state.year));
   if (state.variable && variableById[state.variable].imagery?.time === 'monthly') q.set('mo', String(state.month));
+  if (state.day) q.set('d', state.day);
   q.set('p', `${state.from}-${state.to}`);
   if (state.season !== 'year') q.set('s', state.season);
   if (state.borders) q.set('b', '1');
@@ -314,6 +338,8 @@ export function fromQuery(search: string): { state: Partial<ExploreState>; view:
   if (y > 1800 && y < 2100) state.year = y;
   const mo = Number(q.get('mo'));
   if (mo >= 1 && mo <= 12) state.month = mo;
+  const d = q.get('d');
+  if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && state.year === Number(d.slice(0, 4))) state.day = d;
   const [f, t] = (q.get('p') ?? '').split('-').map(Number);
   if (f > 1800 && t > f) {
     state.from = f;

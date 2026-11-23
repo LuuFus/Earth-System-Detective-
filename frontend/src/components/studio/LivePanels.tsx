@@ -111,7 +111,7 @@ export function FiresPanel(p: FiresProps) {
         <p className="note">{t.fires.storiesNote}</p>
         {!p.stories && <p className="note">{t.loading}</p>}
         <div className="story-list">
-          {p.stories?.map((s) => (
+          {[...(p.stories ?? [])].sort((a, b) => b.start.localeCompare(a.start)).map((s) => (
             <button key={s.id} type="button" className="story-card" aria-pressed={p.storyId === s.id} onClick={() => p.onStory(s)}>
               <span className="story-card__title">{s.title[lang]}</span>
               <Bars values={s.perDay} label={s.title[lang]} />
@@ -264,6 +264,8 @@ type UkraineProps = {
   onLiveFires: (on: boolean) => void;
   onBlackout: (on: boolean) => void;
   onUkraine: () => void;
+  /** Opens the occupation timeline player. */
+  onOccupation: () => void;
   stations: AqiStation[] | null;
   stationsError: boolean;
   manifest: LiveManifest | null;
@@ -285,17 +287,6 @@ export function UkrainePanel(p: UkraineProps) {
   const fires7 = p.manifest?.fires?.ukraine.reduce((a, d) => a + d.count, 0) ?? null;
   const latest = p.versions?.[p.versions.length - 1];
   const version = p.versions?.[p.versionIndex];
-  const years: number[] = [];
-  if (p.versions) {
-    let last = '';
-    p.versions.forEach((v, i) => {
-      const y = v.date.slice(0, 4);
-      if (y !== last) {
-        if (last) years.push(i);
-        last = y;
-      }
-    });
-  }
   return (
     <>
       <p className="note">{u.intro}</p>
@@ -371,6 +362,13 @@ export function UkrainePanel(p: UkraineProps) {
 
       <section className="panel-sec">
         <Switch checked={p.front} onChange={p.onFront} label={u.front} note={latest ? `${u.frontLatest}: ${dateText(latest.date, lang, true)}` : undefined} />
+        <button type="button" className="occ-open" onClick={p.onOccupation}>
+          <strong>
+            <Icon name="play" size={16} />
+            {t.occupation.open}
+          </strong>
+          <span>{t.occupation.openNote}</span>
+        </button>
         {p.front && (
           <div className="sub">
             <ul className="front-keys">
@@ -381,22 +379,7 @@ export function UkrainePanel(p: UkraineProps) {
                 </li>
               ))}
             </ul>
-            {p.versions && p.versions.length > 1 && (
-              <>
-                <p className="field__label">{u.frontVersion}</p>
-                <JellySlider
-                  min={0}
-                  max={p.versions.length - 1}
-                  value={p.versionIndex}
-                  onChange={p.onVersion}
-                  label={u.frontVersion}
-                  format={(i) => dateText(p.versions![Math.round(i)]?.date ?? latest!.date, lang)}
-                  formatTick={(i) => p.versions![Math.round(i)]?.date.slice(0, 4) ?? ''}
-                  majors={years}
-                />
-                {version && <p className="note front-note">{version.text[lang] || version.text.uk}</p>}
-              </>
-            )}
+            {version && <p className="note front-note">{version.text[lang] || version.text.uk}</p>}
             {p.frontStatus === 'loading' && <p className="note">{t.loading}</p>}
             {p.frontStatus === 'error' && <p className="note">{t.error}</p>}
             <p className="note">{u.frontNote}</p>

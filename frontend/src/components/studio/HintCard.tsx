@@ -1,4 +1,4 @@
-import { HINT_KINDS, type Hint } from '../../data/hints';
+import { HINT_KINDS, whenText, type Hint } from '../../data/hints';
 import { photoPage, photoUrl } from '../../data/photos';
 import { variableById } from '../../data/variables';
 import { useI18n } from '../../i18n/I18n';
@@ -6,7 +6,7 @@ import { useLiveText } from '../../i18n/live';
 import { useStudio } from '../../i18n/useStudio';
 import { Icon, type IconName } from './Icon';
 
-function KindBadge({ hint, size = 34 }: { hint: Hint; size?: number }) {
+export function KindBadge({ hint, size = 34 }: { hint: Hint; size?: number }) {
   const k = HINT_KINDS[hint.kind];
   return (
     <span className="kind-badge" style={{ ['--hint' as string]: k.color, width: size, height: size }} aria-hidden="true">
@@ -30,19 +30,37 @@ export function HintPreview({ hint, x, y }: { hint: Hint; x: number; y: number }
           <KindBadge hint={hint} size={22} />
           {hint.title[lang]}
         </p>
-        <p className="hint-preview__text">{hint.why?.[lang] ?? hint.text[lang]}</p>
+        <p className="hint-preview__date">{whenText(hint.when, lang)}</p>
+        <p className="hint-preview__text">{hint.causes[0]?.[lang] ?? hint.text[lang]}</p>
         <p className="hint-preview__more">{t.clickMore}</p>
       </div>
     </div>
   );
 }
 
-/** What an event is about: a photo, what happened, why, who or what caused it, what can be done. */
-export function HintCard({ hint, onClose, onOpenCase, onLayer }: { hint: Hint; onClose: () => void; onOpenCase: (id: string) => void; onLayer?: (id: string) => void }) {
+type CardProps = {
+  hint: Hint;
+  onClose: () => void;
+  onOpenCase: (id: string) => void;
+  /** The event's layer on its exact day. */
+  onShow?: (hint: Hint) => void;
+  /** Plays a fire story by id. */
+  onStory?: (id: string) => void;
+  /** Opens the night-lights comparison over Ukraine. */
+  onBlackout?: () => void;
+  /** Turns on the event's layer for its usual date (events with no exact day). */
+  onLayer?: (id: string) => void;
+};
+
+/** What an event is about: when and where, what happened, the main causes, the consequences, what can be done. */
+export function HintCard({ hint, onClose, onOpenCase, onShow, onStory, onBlackout, onLayer }: CardProps) {
   const { lang } = useI18n();
   const s = useStudio();
   const t = useLiveText().event;
   const layer = hint.layer ? variableById[hint.layer] : null;
+  const shown = hint.show ? variableById[hint.show.layer] : null;
+  const showDate = hint.show ? whenText({ from: hint.show.date.length === 10 && variableById[hint.show.layer].imagery?.time === 'monthly' ? hint.show.date.slice(0, 7) : hint.show.date }, lang) : '';
+  const actions = !!(hint.blackout || hint.storyId || (shown && onShow) || (layer && !shown && !hint.blackout && onLayer) || hint.caseId);
   return (
     <section className="hint-card" role="dialog" aria-labelledby={`hint-${hint.id}`}>
       {hint.photo && (
@@ -66,20 +84,40 @@ export function HintCard({ hint, onClose, onOpenCase, onLayer }: { hint: Hint; o
         </button>
       </header>
       <div className="hint-card__body">
+        <dl className="hint-card__meta">
+          <div>
+            <dt>{t.when}</dt>
+            <dd>
+              <time dateTime={hint.when.from}>{whenText(hint.when, lang)}</time>
+            </dd>
+          </div>
+          <div>
+            <dt>{t.where}</dt>
+            <dd>{hint.place[lang]}</dd>
+          </div>
+        </dl>
         <section>
           <h3>{t.what}</h3>
           <p>{hint.text[lang]}</p>
         </section>
-        {hint.why && (
+        {hint.causes.length > 0 && (
           <section>
-            <h3>{t.why}</h3>
-            <p>{hint.why[lang]}</p>
+            <h3>{t.causes}</h3>
+            <ul className="hint-card__list hint-card__list--causes">
+              {hint.causes.map((c) => (
+                <li key={c.en}>{c[lang]}</li>
+              ))}
+            </ul>
           </section>
         )}
-        {hint.cause && (
+        {hint.effects.length > 0 && (
           <section>
-            <h3>{t.cause}</h3>
-            <p>{hint.cause[lang]}</p>
+            <h3>{t.effects}</h3>
+            <ul className="hint-card__list hint-card__list--effects">
+              {hint.effects.map((c) => (
+                <li key={c.en}>{c[lang]}</li>
+              ))}
+            </ul>
           </section>
         )}
         {hint.action && (
@@ -106,16 +144,35 @@ export function HintCard({ hint, onClose, onOpenCase, onLayer }: { hint: Hint; o
           )}
         </ul>
       </div>
-      {(layer || hint.caseId) && (
+      {actions && (
         <div className="hint-card__actions">
-          {layer && onLayer && (
+          {hint.blackout && onBlackout && (
+            <button type="button" className="btn" onClick={onBlackout}>
+              <Icon name="split" size={16} />
+              {t.blackout}
+            </button>
+          )}
+          {hint.storyId && onStory && (
+            <button type="button" className="btn" onClick={() => onStory(hint.storyId!)}>
+              <Icon name="play" size={16} />
+              {t.story}
+            </button>
+          )}
+          {shown && onShow && (
+            <button type="button" className={hint.storyId || hint.blackout ? 'btn btn--quiet' : 'btn'} title={t.showDayTitle} onClick={() => onShow(hint)}>
+              <Icon name="layers" size={16} />
+              {t.showDay(shown.name[lang], showDate)}
+            </button>
+          )}
+          {layer && !shown && !hint.blackout && onLayer && (
             <button type="button" className="btn btn--quiet" onClick={() => onLayer(layer.id)}>
               <Icon name="layers" size={16} />
               {t.showLayer(layer.name[lang])}
             </button>
           )}
           {hint.caseId && (
-            <button type="button" className="btn" onClick={() => onOpenCase(hint.caseId!)}>
+            <button type="button" className="btn btn--quiet" onClick={() => onOpenCase(hint.caseId!)}>
+              <Icon name="analysis" size={16} />
               {s.hints.openCase}
             </button>
           )}

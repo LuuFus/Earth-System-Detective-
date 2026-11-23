@@ -22,8 +22,10 @@ import { HintCard, HintPreview } from '../components/studio/HintCard';
 import { Icon } from '../components/studio/Icon';
 import { AirCard } from '../components/studio/AirCard';
 import { CursorInfo } from '../components/studio/CursorInfo';
+import { OccupationPlayer } from '../components/studio/OccupationPlayer';
+import { loadOccHistory, OccPainter, type OccHistory } from '../data/frontHistory';
 import { FiresPanel, MapControls, MapStyle, StoryPlayer, UkrainePanel, WeatherGlobeControls } from '../components/studio/LivePanels';
-import { CasesPanel, Flyout, GlossaryPanel, LayersPanel, SharePanel } from '../components/studio/Panels';
+import { EventsPanel, Flyout, GlossaryPanel, LayersPanel, SharePanel } from '../components/studio/Panels';
 import { Rail } from '../components/studio/Rail';
 import { Timeline } from '../components/studio/Timeline';
 import { WeatherPanel } from '../components/studio/WeatherPanel';
@@ -32,7 +34,7 @@ import { cases, type Case } from '../data/cases';
 import type { Country } from '../data/countries';
 import { eventsFor } from '../data/events';
 import { countryAt, countryName, loadBorders, loadCountries, loadLabels, type GeoBorders, type GeoCountry, type GeoLabels } from '../data/geo';
-import { HINT_KINDS, hintById, hints } from '../data/hints';
+import { HINT_KINDS, hintById, hints, type Hint } from '../data/hints';
 import { cellIndex } from '../data/gistemp';
 import { imageryDate, imageryYears, nearbyDates, variableById, type VariableId } from '../data/variables';
 import { isOld, mergeAir, type AirStation } from '../data/air';
@@ -169,7 +171,9 @@ export default function Explore() {
       const img = variable?.imagery;
       if (!img) return null;
       // Daily layers use their own day of the year (ozone hole: 1 October); monthly ones follow the month picker.
-      const date = state.blackout && BLACKOUT_DATES[year] ? BLACKOUT_DATES[year] : img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month);
+      // An event can ask for its exact day; otherwise daily layers use their own day of the year.
+      const exact = state.day && img.time === 'daily' && state.day.startsWith(String(year)) && state.day >= img.first && state.day <= img.last ? state.day : null;
+      const date = state.blackout && BLACKOUT_DATES[year] ? BLACKOUT_DATES[year] : exact ?? (img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month));
       // Points are drawn by the server at a fixed size, so finer levels just make them sharper.
       const wmsLevel = img.points ? 10 : (WMS_LEVEL[img.matrixSet] ?? 6);
       let source = img.via === 'wms' ? wmsSource(img.layer, wmsLevel, date) : wmtsSource(img.layer, img.matrixSet, img.format, img.static ? 'default' : date);
@@ -184,7 +188,7 @@ export default function Explore() {
       if (img.native !== undefined) source = nativeSource(source, img.native, img.landOnly ? 3 : 0);
       return { source, opacity: img.points || variable!.id === 'truecolor' ? 1 : 0.85, points: img.points, landOnly: img.landOnly };
     },
-    [variable, state.month, state.blackout],
+    [variable, state.month, state.blackout, state.day],
   );
   const imagery = useMemo(() => imageryFor(state.year), [imageryFor, state.year]);
 
@@ -332,6 +336,58 @@ export default function Explore() {
     return { canvas: drawFront(areas), box: FRONT_BOX, key: `front|${front.id}`, draw: (box, width) => drawFront(areas, box, width) };
   }, [state.front, front.areas, front.id]);
 
+  // The occupation timeline (DeepState, week by week since 2022): played on the front layer's
+  // place on the globe. The painter repaints one canvas in place; the globe re-uploads it.
+  const [occOpen, setOccOpen] = useState(false);
+  const [occ, setOcc] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; history: OccHistory | null }>({ status: 'idle', history: null });
+  useEffect(() => {
+    if (!occOpen || occ.history) return;
+    let cancelled = false;
+    loadOccHistory()
+      .then((history) => !cancelled && setOcc({ status: 'ready', history }))
+      .catch(() => !cancelled && setOcc({ status: 'error', history: null }));
+    return () => {
+      cancelled = true;
+    };
+  }, [occOpen, occ.history]);
+  const occPainter = useMemo(() => (occ.history ? new OccPainter(occ.history, occ.history.box, 1600, 'plate') : null), [occ.history]);
+  const occPos = useRef(0);
+  const [occPlaying, setOccPlaying] = useState(true);
+  // One canvas for the whole playback, repainted in place; `draw` (the sharp close-up) is offered
+  // only while paused, so playing never repaints the close-up.
+  const occVector = useMemo<GlobeVector | null>(() => {
+    if (!occPainter || !occ.history) return null;
+    const history = occ.history;
+    return {
+      canvas: occPainter.canvas,
+      box: occPainter.box,
+      key: 'occupation',
+      draw: occPlaying ? undefined : (box, width) => new OccPainter(history, box, width, 'plate').paint(occPos.current),
+    };
+  }, [occPainter, occ.history, occPlaying]);
+  const onOccPos = useCallback(
+    (pos: number, playing: boolean) => {
+      if (!occPainter) return;
+      occPos.current = pos;
+      occPainter.paint(pos);
+      setOccPlaying(playing);
+      globe.current?.touchFront();
+      // The next weeks are drawn ahead, between animation frames.
+      const k = Math.floor(pos);
+      window.setTimeout(() => {
+        occPainter.warm(k + 1);
+        occPainter.warm(k + 2);
+      }, 0);
+    },
+    [occPainter],
+  );
+  const openOccupation = useCallback(() => {
+    setStory(null);
+    setOccOpen(true);
+    dispatch({ type: 'play', on: false });
+    globe.current?.flyTo(46.0, 34.0, 1.5);
+  }, []);
+
   // Weather on the globe (GFS): the forecast hour closest to now, checked again every minute.
   const [frame, setFrame] = useState<WeatherFrame | null>(null);
   const wantWeather = (state.wind || state.field !== 'none' || pointerSeen) && !!manifest?.weather;
@@ -458,6 +514,30 @@ export default function Explore() {
     setHintId(id);
     dispatch({ type: 'panel', panel: null });
   }, []);
+  // From the news list: the card opens and the camera flies there; the list stays open.
+  const onNews = useCallback((h: Hint) => {
+    setHintId(h.id);
+    globe.current?.flyTo(h.lat, h.lon, h.show?.distance ?? 1.6);
+  }, []);
+  // The event's layer on its exact day, the camera over the place.
+  const onShowEvent = useCallback((h: Hint) => {
+    if (!h.show) return;
+    setStory(null);
+    dispatch({ type: 'show', variable: h.show.layer, date: h.show.date });
+    globe.current?.flyTo(h.lat, h.lon, h.show.distance ?? 1.6);
+  }, []);
+  const onEventStory = useCallback(
+    (id: string) => {
+      void loadStories()
+        .then((d) => {
+          setStories(d.stories);
+          const st = d.stories.find((x) => x.id === id);
+          if (st) openStory(st);
+        })
+        .catch(() => undefined);
+    },
+    [openStory],
+  );
 
   const markers = useMemo<GlobeMarker[]>(() => {
     const out: GlobeMarker[] = [];
@@ -610,7 +690,7 @@ export default function Explore() {
         stations={stationLayer}
         onStationHover={onStationHover}
         onStationPick={onStationPick}
-        front={frontVector}
+        front={occOpen ? occVector : frontVector}
         radiation={state.radiation}
         field={globeField}
         wind={globeWind}
@@ -641,6 +721,7 @@ export default function Explore() {
               onLabels={(labels) => dispatch({ type: 'labels', labels })}
               year={state.year}
               month={state.month}
+              day={state.day}
               from={state.from}
               to={state.to}
               globalValue={climate.global?.value ?? null}
@@ -684,6 +765,7 @@ export default function Explore() {
                 if (on) flyUkraine();
               }}
               onUkraine={flyUkraine}
+              onOccupation={openOccupation}
               stations={aqi.stations}
               stationsError={aqi.error}
               manifest={manifest}
@@ -695,7 +777,7 @@ export default function Explore() {
               warStatus={war.status}
             />
           )}
-          {state.panel === 'cases' && <CasesPanel activeId={state.caseId} onOpen={openCase} />}
+          {state.panel === 'cases' && <EventsPanel activeId={state.caseId} onOpen={openCase} newsId={hintId} onNews={onNews} />}
           {state.panel === 'weather' && (
             <WeatherGlobeControls
               wind={state.wind}
@@ -756,6 +838,13 @@ export default function Explore() {
         <StoryPlayer story={story} onTime={(h) => globe.current?.setStoryTime(h)} onClose={() => setStory(null)} />
       )}
 
+      {occOpen && !story && occ.history && <OccupationPlayer history={occ.history} onPos={onOccPos} onClose={() => setOccOpen(false)} />}
+      {occOpen && !story && !occ.history && (
+        <p className="explore__status" role="status">
+          {occ.status === 'error' ? liveText.occupation.error : liveText.occupation.loading}
+        </p>
+      )}
+
       {airHover && airStations[airHover.i] && (
         <AirCard
           station={airStations[airHover.i]}
@@ -779,7 +868,7 @@ export default function Explore() {
       />
       <MapControls onZoom={(f) => globe.current?.zoomBy(f)} onHome={() => globe.current?.home()} />
 
-      {!story && (dated || state.variable === 'gistemp' || state.analysisOpen) && (
+      {!story && !occOpen && (dated || state.variable === 'gistemp' || state.analysisOpen) && (
         <Timeline
           year={showYear ? state.year : null}
           yearRange={yearRange}
@@ -817,6 +906,13 @@ export default function Explore() {
             if (c) openCase(c);
           }}
           onLayer={(id) => dispatch({ type: 'variable', id: id as VariableId })}
+          onShow={onShowEvent}
+          onStory={onEventStory}
+          onBlackout={() => {
+            setStory(null);
+            dispatch({ type: 'blackout', on: true });
+            flyUkraine();
+          }}
         />
       )}
       {hintHover && !hintId && hintById[hintHover.id] && <HintPreview hint={hintById[hintHover.id]} x={hintHover.x} y={hintHover.y} />}

@@ -7,7 +7,7 @@ import { modelMix, placeName, type AirStation, type Mix } from '../../data/air';
 import { waqiFeed, type WaqiFeed } from '../../data/waqi';
 import type { LiveFires, WeatherFrame } from '../../data/live';
 import { fireIndex, weatherAt } from '../../data/nearby';
-import { AQI_COLORS, aqiBand } from '../../data/ukraine';
+import { AQI_COLORS, aqiBand, aqiFromPm } from '../../data/ukraine';
 import { useI18n } from '../../i18n/I18n';
 import { useLiveText } from '../../i18n/live';
 import { ago } from '../../data/live';
@@ -93,12 +93,21 @@ export function AirCard({ station, x, y, pinned, frame, fires, onClose }: Props)
     ['so2', 'SO₂'],
     ['co', 'CO'],
   ];
-  const w = 330;
+  // The pollutant behind the index: WAQI names it; otherwise the larger of the PM2.5 and PM10 sub-indices.
+  const subPm25 = station.pm25 !== null ? aqiFromPm(station.pm25, null) : null;
+  const subPm10 = station.pm10 !== null ? aqiFromPm(null, station.pm10) : null;
+  const dominant: keyof typeof t.causes | null =
+    feed?.dominant && feed.dominant in t.causes ? (feed.dominant as keyof typeof t.causes) : subPm25 !== null || subPm10 !== null ? ((subPm10 ?? -1) > (subPm25 ?? -1) ? 'pm10' : 'pm25') : null;
+  const cause = band === 0 ? t.causes.clean : dominant ? t.causes[dominant] : null;
+  const avoid = t.avoid[band];
+  const help = t.do[band];
+
+  const w = pinned ? 360 : 330;
   const left = Math.min(window.innerWidth - w - 12, Math.max(12, x + 18));
-  const top = Math.min(window.innerHeight - 380, Math.max(70, y - 40));
+  const top = Math.min(window.innerHeight - (pinned ? 520 : 360), Math.max(70, y - 40));
 
   return (
-    <section className={`air-card${pinned ? ' air-card--pinned' : ''}`} style={{ left, top, width: w }} aria-label={title}>
+    <section className={`air-card${pinned ? ' air-card--pinned' : ''}`} style={{ left, top: Math.max(12, top), width: w, maxHeight: window.innerHeight - Math.max(12, top) - 12 }} aria-label={title}>
       <header className="air-card__head">
         <div>
           <p className="air-card__kind">{station.source === 'saveecobot' ? 'SaveEcoBot' : station.source === 'waqi' ? t.waqi : t.citizen}</p>
@@ -114,87 +123,119 @@ export function AirCard({ station, x, y, pinned, frame, fires, onClose }: Props)
       <div className="air-card__aqi" style={{ ['--aqi' as string]: hex(AQI_COLORS[band]) }}>
         <strong>{station.aqi}</strong>
         <span>
-          <b>{t.bands[band]}</b>
-          {t.aqiNote}
+          <b>{t.headline[band]}</b>
+          {t.meaning[band]}
         </span>
       </div>
-      <dl className="air-card__rows">
-        {station.pm25 !== null && (
-          <div>
-            <dt>PM2.5</dt>
-            <dd>{nf1.format(station.pm25)} µg/m³</dd>
-          </div>
-        )}
-        {station.pm10 !== null && (
-          <div>
-            <dt>PM10</dt>
-            <dd>{nf1.format(station.pm10)} µg/m³</dd>
-          </div>
-        )}
-        {feed?.dominant && (
-          <div>
-            <dt>{t.dominant}</dt>
-            <dd>{POLLUTANTS.find(([k]) => k === feed.dominant)?.[1] ?? feed.dominant}</dd>
-          </div>
-        )}
-        {feed && POLLUTANTS.some(([k]) => feed.iaqi[k] !== undefined) && (
-          <div className="air-card__subs">
-            <dt>{t.subIndex}</dt>
-            <dd>
-              {POLLUTANTS.filter(([k]) => feed.iaqi[k] !== undefined).map(([k, name]) => (
-                <span key={k} style={{ ['--aqi' as string]: hex(AQI_COLORS[aqiBand(feed.iaqi[k])]) }}>
-                  {name} <b>{nf0.format(feed.iaqi[k])}</b>
-                </span>
+      <div className="air-card__advice">
+        {avoid.length > 0 && (
+          <>
+            <p className="air-card__why-title">{t.avoidTitle}</p>
+            <ul className="air-card__list air-card__list--avoid">
+              {(pinned ? avoid : avoid.slice(0, 2)).map((a) => (
+                <li key={a}>{a}</li>
               ))}
-            </dd>
-          </div>
+            </ul>
+          </>
         )}
-        {feed?.iaqi.t !== undefined && (
-          <div>
-            <dt>{stationText.temp}</dt>
-            <dd>{nf1.format(feed.iaqi.t)} °C</dd>
-          </div>
+        {(pinned || avoid.length === 0) && (
+          <>
+            <p className="air-card__why-title">{t.doTitle}</p>
+            <ul className="air-card__list air-card__list--do">
+              {help.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+          </>
         )}
-        <div>
-          <dt>{t.measured}</dt>
-          <dd>{station.source === 'sensor' ? t.hourMean(ago(station.time, lang)) : feed?.time ? ago(feed.time, lang) : station.source === 'waqi' ? station.time : ago(station.time, lang)}</dd>
+      </div>
+      {cause && (
+        <div className="air-card__cause">
+          <p className="air-card__why-title">{t.causesTitle}</p>
+          <p>{cause}</p>
         </div>
-      </dl>
-      <div className="air-card__why">
-        <p className="air-card__why-title">{t.whyTitle}</p>
-        {mix === 'loading' && factors.length === 0 ? (
-          <p className="note">{t.loading}</p>
-        ) : factors.length ? (
-          <ul>
-            {factors.map((f) => (
-              <li key={f.text}>
-                <Icon name={f.icon as never} size={16} />
-                <span>{f.text}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="note">{band === 0 ? t.clean : t.nothing}</p>
-        )}
-        <p className="air-card__fine">{t.disclaimer}</p>
-        {feed && feed.attributions.length > 0 && (
-          <p className="air-card__fine">
-            {t.network}:{' '}
-            {feed.attributions.slice(0, 3).map((a, i) => (
-              <span key={a.url}>
-                {i > 0 && ', '}
-                {pinned ? (
+      )}
+      {pinned && (
+        <dl className="air-card__rows">
+          {station.pm25 !== null && (
+            <div>
+              <dt>PM2.5</dt>
+              <dd>{nf1.format(station.pm25)} µg/m³</dd>
+            </div>
+          )}
+          {station.pm10 !== null && (
+            <div>
+              <dt>PM10</dt>
+              <dd>{nf1.format(station.pm10)} µg/m³</dd>
+            </div>
+          )}
+          {feed?.dominant && (
+            <div>
+              <dt>{t.dominant}</dt>
+              <dd>{POLLUTANTS.find(([k]) => k === feed.dominant)?.[1] ?? feed.dominant}</dd>
+            </div>
+          )}
+          {feed && POLLUTANTS.some(([k]) => feed.iaqi[k] !== undefined) && (
+            <div className="air-card__subs">
+              <dt>{t.subIndex}</dt>
+              <dd>
+                {POLLUTANTS.filter(([k]) => feed.iaqi[k] !== undefined).map(([k, name]) => (
+                  <span key={k} style={{ ['--aqi' as string]: hex(AQI_COLORS[aqiBand(feed.iaqi[k])]) }}>
+                    {name} <b>{nf0.format(feed.iaqi[k])}</b>
+                  </span>
+                ))}
+              </dd>
+            </div>
+          )}
+          {feed?.iaqi.t !== undefined && (
+            <div>
+              <dt>{stationText.temp}</dt>
+              <dd>{nf1.format(feed.iaqi.t)} °C</dd>
+            </div>
+          )}
+          <div>
+            <dt>{t.measured}</dt>
+            <dd>{station.source === 'sensor' ? t.hourMean(ago(station.time, lang)) : feed?.time ? ago(feed.time, lang) : station.source === 'waqi' ? station.time : ago(station.time, lang)}</dd>
+          </div>
+        </dl>
+      )}
+      {(pinned || factors.length > 0) && (
+        <div className="air-card__why">
+          <p className="air-card__why-title">{t.whyTitle}</p>
+          {mix === 'loading' && factors.length === 0 ? (
+            <p className="note">{t.loading}</p>
+          ) : factors.length ? (
+            <ul>
+              {(pinned ? factors : factors.slice(0, 2)).map((f) => (
+                <li key={f.text}>
+                  <Icon name={f.icon as never} size={16} />
+                  <span>{f.text}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="note">{band === 0 ? t.clean : t.nothing}</p>
+          )}
+          {pinned && (
+            <p className="air-card__fine">
+              {t.disclaimer} {t.healthNote}
+            </p>
+          )}
+          {pinned && feed && feed.attributions.length > 0 && (
+            <p className="air-card__fine">
+              {t.network}:{' '}
+              {feed.attributions.slice(0, 3).map((a, i) => (
+                <span key={a.url}>
+                  {i > 0 && ', '}
                   <a href={a.url} target="_blank" rel="noreferrer">
                     {a.name}
                   </a>
-                ) : (
-                  a.name
-                )}
-              </span>
-            ))}
-          </p>
-        )}
-      </div>
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
       {!pinned && <p className="air-card__hint">{t.clickToPin}</p>}
     </section>
   );

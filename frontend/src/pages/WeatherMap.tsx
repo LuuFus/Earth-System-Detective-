@@ -16,6 +16,8 @@ import { FlowLayer, type Projection } from '../components/globe/flow';
 import { StationLayer, type Stations } from '../components/globe/stations';
 import { bordersGeo, firesGeo, frontGeo, maskGeo, outlineGeo, warGeo } from '../components/map/geo';
 import { AirCard } from '../components/studio/AirCard';
+import { OccupationPlayer } from '../components/studio/OccupationPlayer';
+import { loadOccHistory, OccPainter, type OccHistory } from '../data/frontHistory';
 import { Icon, type IconName } from '../components/studio/Icon';
 import { FieldLegend, RadiationLegend, Switch } from '../components/studio/LivePanels';
 import { TopBar } from '../components/TopBar';
@@ -169,6 +171,9 @@ export default function MapPage() {
   const [weatherOver, setWeatherOver] = useStored<'on' | 'off'>('map-ua-weather', 'off');
   const weather = !uaMode || weatherOver === 'on';
   const [ua, setUa] = useState({ aqi: true, fires: true, front: true, war: false, radiation: false });
+  // The occupation timeline: DeepState week by week since 2022, played in place of the front.
+  const [occOpen, setOccOpen] = useState(false);
+  const [occ, setOcc] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; history: OccHistory | null }>({ status: 'idle', history: null });
   const { manifest } = useLiveManifest();
   // An air layer needs the air forecast; a site built without it shows the wind instead.
   const layer: Layer = isAirKind(storedLayer) && manifest && !manifest.airq ? 'wind' : storedLayer;
@@ -400,7 +405,7 @@ export default function MapPage() {
   // Front line (DeepState), newest version.
   useEffect(() => {
     if (!base) return;
-    if (!uaMode || !ua.front) return setGeo('front', null, () => undefined);
+    if (!uaMode || !ua.front || occOpen) return setGeo('front', null, () => undefined);
     let cancelled = false;
     void loadFrontHistory()
       .then((list) => dailyVersions(list).at(-1))
@@ -427,7 +432,56 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [base, uaMode, ua.front, setGeo]);
+  }, [base, uaMode, ua.front, occOpen, setGeo]);
+
+  // ---------- occupation timeline ----------
+  useEffect(() => {
+    if (!occOpen || occ.history) return;
+    let cancelled = false;
+    loadOccHistory()
+      .then((history) => !cancelled && setOcc({ status: 'ready', history }))
+      .catch(() => !cancelled && setOcc({ status: 'error', history: null }));
+    return () => {
+      cancelled = true;
+    };
+  }, [occOpen, occ.history]);
+  // Web Mercator: the map stretches a canvas source linearly between its corners in Mercator.
+  const occPainter = useMemo(() => (occ.history ? new OccPainter(occ.history, occ.history.box, 1400, 'mercator') : null), [occ.history]);
+  const occShown = occOpen && uaMode && !!occPainter;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !base) return;
+    if (!occShown || !occPainter) {
+      if (map.getLayer('occ')) map.setLayoutProperty('occ', 'visibility', 'none');
+      return;
+    }
+    const { w, s, e, n } = occPainter.box;
+    if (!map.getSource('occ')) {
+      map.addSource('occ', { type: 'canvas', canvas: occPainter.canvas, coordinates: [[w, n], [e, n], [e, s], [w, s]], animate: false });
+      map.addLayer({ id: 'occ', type: 'raster', source: 'occ', paint: { 'raster-opacity': 1, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } }, 'borders-halo');
+    }
+    map.setLayoutProperty('occ', 'visibility', 'visible');
+  }, [occShown, occPainter, base]);
+  const onOccPos = useCallback(
+    (pos: number) => {
+      const map = mapRef.current;
+      if (!map || !occPainter) return;
+      occPainter.paint(pos);
+      // A paused canvas source uploads its pixels only while "playing": play for one frame.
+      const src = map.getSource('occ') as CanvasSource | undefined;
+      if (src) {
+        src.play();
+        map.once('render', () => src.pause());
+        map.triggerRepaint();
+      }
+      const k = Math.floor(pos);
+      window.setTimeout(() => {
+        occPainter.warm(k + 1);
+        occPainter.warm(k + 2);
+      }, 0);
+    },
+    [occPainter],
+  );
 
   // Official list of occupied communities.
   useEffect(() => {
@@ -959,6 +1013,23 @@ export default function MapPage() {
             <Switch checked={ua.aqi} onChange={() => toggle('aqi')} label={WAQI_TOKEN ? t.ukraine.aqiWaqi : t.ukraine.aqi} />
             <Switch checked={ua.fires} onChange={() => toggle('fires')} label={t.ukraine.fires} />
             <Switch checked={ua.front} onChange={() => toggle('front')} label={t.ukraine.front} />
+            <button
+              type="button"
+              className="occ-open"
+              aria-pressed={occOpen}
+              onClick={() => {
+                setOccOpen(true);
+                setPlaying(false);
+                const narrow = mapRef.current ? mapRef.current.getContainer().clientWidth < 720 : false;
+                mapRef.current?.fitBounds([[29.5, 44.2], [40.3, 52.5]], { padding: narrow ? { top: 120, bottom: 300, left: 16, right: 16 } : { top: 80, bottom: 330, left: 40, right: 300 }, duration: 900 });
+              }}
+            >
+              <strong>
+                <Icon name="play" size={16} />
+                {t.occupation.open}
+              </strong>
+              <span>{t.occupation.openNote}</span>
+            </button>
             {ua.front && (
               <ul className="front-keys wm-keys">
                 {(['occupied', 'liberated', 'unknown'] as const).map((k) => (
@@ -1047,7 +1118,14 @@ export default function MapPage() {
 
       <MapStyleButton style={style} onStyle={setStyle} />
 
-      {weather && (
+      {uaMode && occOpen && occ.history && <OccupationPlayer className="occ-player--map" history={occ.history} onPos={onOccPos} onClose={() => setOccOpen(false)} />}
+      {uaMode && occOpen && !occ.history && (
+        <p className="wm-status" role="status">
+          {occ.status === 'error' ? t.occupation.error : t.occupation.loading}
+        </p>
+      )}
+
+      {weather && !(uaMode && occOpen) && (
         <section className="wm-timeline" aria-label={w.title}>
           <button type="button" className="play-btn" aria-label={playing ? w.pause : w.play} onClick={() => setPlaying(!playing)}>
             <Icon name={playing ? 'pause' : 'play'} />

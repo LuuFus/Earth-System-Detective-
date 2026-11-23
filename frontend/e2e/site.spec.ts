@@ -178,3 +178,77 @@ test('ask the Earth: a question about a town gets an answer with numbers and a l
   await expect(card).toContainText('прості питання');
   expect(errors).toEqual([]);
 });
+
+test('events: the news list, the Los Angeles fires day by day, the blackout comparison', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/explore?panel=cases');
+  await page.locator('.news-card', { hasText: 'Пожежі в Лос-Анджелесі' }).click();
+  const card = page.locator('.hint-card');
+  await expect(card).toContainText('7–31 січня 2025');
+  await expect(card).toContainText('Основні причини');
+  await expect(card).toContainText('Наслідки');
+  // The fire points of those days, from the NASA FIRMS archive.
+  await card.getByRole('button', { name: 'Точки вогню день за днем' }).click();
+  await expect(page.locator('.story-player')).toContainText('Лос-Анджелес');
+  // The blackout event opens the 2021 / 2022 comparison at once (it used to only switch the layer on).
+  await page.locator('.news-card', { hasText: 'Блекаут' }).click();
+  await page.getByRole('button', { name: 'Порівняти: 2021 і 2022' }).click();
+  await expect(page).toHaveURL(/cmp=2021/);
+  await expect(page).toHaveURL(/on=blackout/);
+  expect(errors).toEqual([]);
+});
+
+test('the side panel can be made wider and narrower, and keeps its width', async ({ page }) => {
+  await page.goto('/explore?panel=layers');
+  const panel = page.locator('.flyout');
+  await expect(panel).toBeVisible();
+  await page.waitForTimeout(600);
+  const before = (await panel.boundingBox())!.width;
+  const handle = (await page.locator('.flyout__resize').boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 220, handle.y + handle.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(before + 150);
+  const wide = Math.round((await panel.boundingBox())!.width);
+  // Opened again on a new visit, it keeps the width.
+  await page.goto('/explore?panel=layers');
+  await expect(panel).toBeVisible();
+  await page.waitForTimeout(800);
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBeGreaterThan(wide - 10);
+  // The keyboard works too: Home is the narrowest.
+  await page.locator('.flyout__resize').focus();
+  await page.keyboard.press('Home');
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeLessThan(310);
+});
+
+test('glossary: a term has its formula, how to read it and where it is on the site', async ({ page }) => {
+  await page.goto('/explore');
+  await page.locator('.rail__btn[data-id="glossary"]').click();
+  await page.getByRole('searchbox').fill('NDVI');
+  const term = page.locator('.gloss-term');
+  await expect(term).toHaveCount(1);
+  await expect(term.locator('.gloss-formula')).toContainText('NDVI = (NIR − Red) / (NIR + Red)');
+  await expect(term).toContainText('Як читати числа');
+  await expect(term).toContainText('Де на сайті');
+});
+
+test('occupied territory: the timeline plays from 2022 and can be moved by hand', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/map?mode=ukraine');
+  await page.getByRole('button', { name: /Хронологія з 2022 року/ }).click();
+  const player = page.locator('.occ-player');
+  await expect(player).toBeVisible();
+  const date = player.locator('.occ-player__date');
+  const first = await date.textContent();
+  // It plays: the date moves on by itself.
+  await expect.poll(() => date.textContent(), { timeout: 15_000 }).not.toBe(first);
+  await player.getByRole('button', { name: 'Пауза' }).click();
+  // 13 November 2022: Kherson's liberation shows in the numbers.
+  const n = await page.evaluate(async () => (await (await fetch('/data/ukraine/front-history.json')).json()).frames.length as number);
+  const chart = (await player.locator('.occ-chart__svg').boundingBox())!;
+  await page.mouse.click(chart.x + (chart.width * 33) / (n - 1), chart.y + chart.height / 2);
+  await expect(date).toHaveText('13 листопада 2022');
+  await expect(player.locator('.occ-chip--liberated')).toBeVisible();
+  expect(errors).toEqual([]);
+});

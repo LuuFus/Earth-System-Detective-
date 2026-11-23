@@ -101,6 +101,32 @@ STORIES = [
         },
     },
     {
+        "id": "fields-2018",
+        "country": "Ukraine",
+        "box": {"w": 22.1, "s": 44.3, "e": 40.3, "n": 52.4},
+        "start": "2018-03-25",
+        "end": "2018-04-30",
+        "camera": {"lat": 48.6, "lon": 31.3, "distance": 1.55},
+        "title": {"uk": "Паління полів, Україна, квітень 2018", "en": "Field burning, Ukraine, April 2018"},
+        "text": {
+            "uk": "Щовесни перед сівбою в Україні палять стерню й суху траву. 9 квітня 2018 року VIIRS нарахував у країні 552 осередки вогню. Подивіться, як вогнищ на полях стає дедалі більше, коли сходить сніг і висихає земля.",
+            "en": "Every spring before sowing, stubble and dry grass are burned in Ukraine. On 9 April 2018 VIIRS counted 552 hotspots in the country. Watch the field fires multiply as the snow melts and the ground dries.",
+        },
+    },
+    {
+        "id": "la-2025",
+        "country": "United_States",
+        "box": {"w": -118.85, "s": 33.95, "e": -117.9, "n": 34.42},
+        "start": "2025-01-07",
+        "end": "2025-01-31",
+        "camera": {"lat": 34.15, "lon": -118.35, "distance": 1.03},
+        "title": {"uk": "Лос-Анджелес, січень 2025", "en": "Los Angeles, January 2025"},
+        "text": {
+            "uk": "7 січня 2025 року ураганний вітер Санта-Ана розніс дві пожежі — Палісейдс на заході міста й Ітон в Альтадіні — просто в житлові квартали. Згоріли понад 16 тисяч будинків, загинула 31 людина; локалізували вогонь лише 31 січня.",
+            "en": "On 7 January 2025 hurricane-force Santa Ana winds drove two fires — Palisades in the west of the city and Eaton in Altadena — straight into neighbourhoods. Over 16,000 buildings burned and 31 people died; the fires were contained only on 31 January.",
+        },
+    },
+    {
         "id": "quebec-2023",
         "country": "Canada",
         "box": {"w": -80.0, "s": 47.5, "e": -71.5, "n": 53.6},
