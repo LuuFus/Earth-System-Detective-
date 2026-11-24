@@ -3,6 +3,7 @@
 // would overlap give way to the ones drawn first (the worst first), so the map stays readable at
 // any zoom; zoom in to see more.
 
+import { CanvasLayer } from './canvasLayer';
 import type { Projection } from './flow';
 
 export type Stations = {
@@ -21,24 +22,16 @@ export type Stations = {
 
 const R = 12;
 
-export class StationLayer {
-  readonly canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+export class StationLayer extends CanvasLayer {
   private data: Stations | null = null;
   private order: number[] = [];
   private drawn: { i: number; x: number; y: number }[] = [];
-  private width = 0;
-  private height = 0;
-  private dpr = 1;
   hovered = -1;
   private readonly shape: 'circle' | 'tag';
 
   constructor(className: string, shape: 'circle' | 'tag' = 'circle') {
+    super(className);
     this.shape = shape;
-    this.canvas = document.createElement('canvas');
-    this.canvas.className = className;
-    this.canvas.setAttribute('aria-hidden', 'true');
-    this.ctx = this.canvas.getContext('2d')!;
   }
 
   set(data: Stations | null): void {
@@ -51,8 +44,7 @@ export class StationLayer {
       this.order = Array.from({ length: data.value.length }, (_, i) => i).sort((a, b) => (old ? old[a] - old[b] : 0) || data.value[b] - data.value[a]);
     } else {
       this.order = [];
-      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.clear();
     }
   }
 
@@ -60,24 +52,12 @@ export class StationLayer {
     return this.data !== null;
   }
 
-  resize(width: number, height: number, dpr: number): void {
-    this.width = width;
-    this.height = height;
-    this.dpr = dpr;
-    this.canvas.width = Math.max(1, Math.round(width * dpr));
-    this.canvas.height = Math.max(1, Math.round(height * dpr));
-    this.canvas.style.width = `${width}px`;
-    this.canvas.style.height = `${height}px`;
-  }
-
   draw(view: Projection): void {
     const ctx = this.ctx;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.begin();
     const data = this.data;
     this.drawn = [];
     if (!data || !this.width) return;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     // A grid of cells two bubbles wide: a bubble is placed only if no neighbour is too close.
     // Tags are wider than tall: they need more room side by side than one above the other.
     const rx = this.shape === 'tag' ? 2 * R * 1.45 : 2 * R;

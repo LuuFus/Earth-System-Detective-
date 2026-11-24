@@ -2,7 +2,7 @@
 // temperature, rain and snow, gusts, cloud) and NASA FIRMS fires of the last 48 hours.
 
 import { useEffect, useState } from 'react';
-import { fieldPixels, GridFrame, worldView, type FieldKind, type FieldView, type GridVar } from './field';
+import { fieldPixels, GridFrame, type FieldKind, type FieldView, type GridVar } from './field';
 
 export { colorAt, fieldValue, GridFrame, SCALES, AIR_KINDS, isAirKind, type FieldKind } from './field';
 /** A moment of the GFS forecast (whole Earth, 1°). */
@@ -33,6 +33,8 @@ export type LiveManifest = {
     compression?: 'deflate';
   };
   air?: { source: string; url: string; file: string; count: number };
+  /** Background radiation at stations around the world (official networks and volunteers). */
+  radiation?: { file: string; count: number; sources: string[] };
   /** CAMS air quality forecast over Ukraine and its neighbours (a model, not measurements). */
   airq?: {
     source: string;
@@ -130,11 +132,6 @@ export function nearestFrame(manifest: LiveManifest, at = Date.now()): number {
 
 export function frameTime(time: string): Date {
   return new Date(time);
-}
-
-/** The field painted on a canvas, on this thread (the worker in fieldPainter.ts does it off it). */
-export function paintField(frame: WeatherFrame, kind: FieldKind, projection: 'equirect' | 'mercator', width = 1440): HTMLCanvasElement {
-  return paintView(frame, kind, worldView(projection, width));
 }
 
 export function paintView(frame: GridFrame, kind: FieldKind, view: FieldView): HTMLCanvasElement {

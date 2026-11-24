@@ -81,7 +81,7 @@ The screenshots show the Ukrainian interface; the site switches to English with 
 
 The main screen (`/explore`) is a Three.js globe with NASA GIBS satellite imagery and relief. On the
 left, a tool column: **Layers, Fires, Ukraine, Weather, Analysis, Events, Glossary, Share**; in the
-middle, country search and a 3D / 2D switch; at the bottom, a timeline. The panel that slides out on
+middle, a country or city search and a 3D / 2D switch; at the bottom, a timeline. The panel that slides out on
 the left can be **made wider or narrower**: drag its right edge (or use ← → on the keyboard; a button
 in its header switches between the usual and a wide panel); the width is remembered.
 
@@ -89,6 +89,11 @@ in its header switches between the usual and a wide panel); the width is remembe
   water (GPM and MERRA-2 rain, water vapour, humidity, soil moisture, snow, sea ice), air (nitrogen
   dioxide, ozone, carbon monoxide, dust, aerosols, wind), land (NDVI vegetation, land cover, fires),
   people (night lights, population density).
+- **Cities** (under "Borders and names", next to the capitals, seas and rivers): over 3,000 cities
+  of the world with 100,000 people and more and the cities of Ukraine, with their population; the
+  closer you zoom, the more cities. Click a city for a card with its population, built-up area, air,
+  radiation and fires nearby. Cities can be found in the search too (smaller ones through the
+  Open-Meteo geocoder).
 - **Layer hints**: each layer has a scale with numbers and units and an explanation of the colours;
   the pointer shows the value at a place in words.
 - **Year player**: "From" — the year to play from to the latest; the bottom bar folds away.
@@ -124,10 +129,31 @@ power grid) under a before/after slider.
 - **Fires now**: every detection of the last 48 hours from NASA FIRMS — VIIRS (NOAA-20, NOAA-21,
   Suomi NPP satellites, 375 m) and MODIS (Terra, Aqua, 1 km). The colour shows how many hours ago the
   fire was seen. Updated every hour; NASA publishes detections about 1–3 hours after the overpass.
+- **Two fire layers and how they differ**: the Fires layer is the archive of one chosen day of the
+  chosen year (it steps day by day and works with the comparison shutter); Fires of the last 48 hours
+  is what the satellites see now. So the live points are always newer; while years are compared they
+  are hidden. The archive reads NASA GIBS vector tiles of three satellites at once: Suomi NPP stopped
+  sending fires in 2026, so newer days come from NOAA-20 and NOAA-21.
 - **Ukraine over 7 days**: the number of fires and a chart by day.
 - **Big fires day by day**: Los Angeles (January 2025), Quebec (2023), the front (2022), Evia and
   Turkey (2021), the Chornobyl zone and Luhansk region (2020), spring field burning in Ukraine (April
-  2018). You see fire flare up, smoulder and leave a burn scar.
+  2018), and the war: the oil depot near Vasylkiv (February 2022), the Azot plant in Sievierodonetsk
+  (June 2022), the ports of Odesa and Chornomorsk (July 2023), the mass attack on Kyiv (June 2025).
+  The fire points come from the NASA FIRMS archives of two satellites (Suomi NPP and NOAA-20). You
+  see fire flare up, smoulder and leave a burn scar.
+- **Where most fire burns now**: the strongest clusters of fire in the world over 48 hours
+  (volcanoes left out), with the count of the last day against the day before. Click one and the
+  site works out where the smoke goes with the NOAA GFS wind forecast (if the fires keep burning as
+  now), the fire weather of 3 days (the Fosberg index, FFWI, from the Open-Meteo forecast of
+  temperature, humidity and wind) and whether the air in the towns around will get worse (the CAMS
+  model forecast).
+- **Smoke and wind**: a button in a story zooms in on the few days when the smoke mattered most:
+  puffs of smoke from every fire carried by the real wind of those hours (the ERA5 reanalysis), wind
+  arrows only near the fire, and circles with the air quality in the towns around (the CAMS model)
+  that turn red as the smoke arrives. Alongside: what happened, why, what it led to (including the
+  town with the worst air) and what to do; war scenes (the front, strikes) have their own advice. The
+  smoke is drawn on the graphics card (Three.js): thousands of soft puffs in one call, on the 3D Earth
+  and on the 2D map (a MapLibre custom layer).
 
 ![The Chornobyl zone fire, April 2020](docs/screenshots/fire-story.jpg)
 
@@ -148,9 +174,21 @@ out to the world the dimming fades). Map styles: relief, satellite, OpenStreetMa
   data show nearby: fires, still air, rain, humidity, dust and gases from the Copernicus CAMS model.
 - **Occupied territory and the DeepState front line**; **occupied communities** from the official list
   of Ukraine's Ministry of Development; **fires** from NASA FIRMS.
-- **Background radiation at stations** (SaveEcoBot): each tag is a station measuring the gamma
-  background at its own place, with the number in µSv/h and a colour for the level (low, ordinary,
-  raised, high). The station card explains in plain words what the number means, what it adds up to
+- **Fires of the last 48 hours**: dots by age and power from afar, flames close up. Click a fire:
+  when a satellite saw it, how strong it is, the town nearby, whether its hromada is in the official
+  list of war or occupied territories, and **Where will the smoke go**: the plume with the NOAA GFS
+  wind forecast for a day and the towns it may reach (how far depends on the fire's power).
+- **Cities**: dots with names you can click, and a city search with its card.
+- **Strikes with fires, and their smoke**: marks of documented strikes after which satellites saw
+  fire, and their list in the panel. Click one and the Smoke and wind scene opens right on the map:
+  where the wind took the smoke, what the air was like in the towns, why it happened, what it led to
+  and what to do. During a scene the live layers (air, radiation, fires of 48 hours) step aside, so
+  today is not mixed up with the past.
+- **Background radiation at stations around the world**: Ukraine from SaveEcoBot; Germany and Finland
+  from the national networks BfS and STUK; elsewhere volunteers' counters of Safecast and
+  Sensor.Community (less precise, the card says so). Each tag is a station with its number in µSv/h
+  and a colour for the level (low, ordinary, raised, high). Air and radiation take turns so the
+  markers do not cover each other. The station card explains in plain words what the number means, what it adds up to
   in a year and what to do. The same on the 3D Earth, in My city and in Ask the Earth ("What is the
   radiation in Kyiv?").
 - **Occupation timeline since 2022** (on the map and on the 3D Earth): a week-by-week player from the
@@ -257,6 +295,11 @@ checks it for a trend.
   zooms, pans, goes full screen and saves as an image or CSV.
 - **Comparison**: add region B — two countries or regions on one chart, and which changes faster.
   Countries are outlined on the globe, and the numbers are computed inside their borders only.
+- **All about the places**: two cities (or two points) side by side by everything the site can
+  measure: population, area and density; industrial areas and factories from OpenStreetMap; green
+  and vegetation (NDVI), summer surface heat (NASA MODIS); fires nearby, air quality and radiation
+  now; mean temperature, rain and height. Green is better for people, red worse; each row says where
+  its number comes from.
 - **"How it is computed"**: for each method, a plain explanation, the formula and the same
   computation on your data (S, Var(S), Z, p, slope, interval).
 - **GISTEMP layer**: the temperature anomaly for a year, the difference between two years and the
@@ -317,6 +360,9 @@ collect the data and publish it as files.
 - The same script fetches the CAMS air quality forecast (Open-Meteo) twice a day on a 0.5° grid
   over Ukraine and its neighbours; in between it reuses the one already published.
 - `build_fire_stories.py` — big fires from the FIRMS archives.
+- `build_geo.py` — borders, labels and the city list (`cities.json`, Natural Earth).
+- `build_live.py` also gathers the background radiation of stations around the world
+  (`radiation.json`: BfS, STUK, Safecast, Sensor.Community).
 - `build_front_history.py` — the occupation timeline: one DeepState map version a week since April
   2022, only what is occupied inside Ukraine; areas counted on a 0.005° grid, outlines simplified
   (numpy only).

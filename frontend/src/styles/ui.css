@@ -5966,3 +5966,522 @@ a.chip-btn {
 .ask__answer:empty {
   display: none;
 }
+
+/* ---------- Fires: the archive day and the live 48 hours ---------- */
+:root {
+  --color-fire-archive: #ff5a3c;
+}
+.fire-two__list {
+  display: grid;
+  gap: var(--space-2, 8px);
+  margin: 0 0 var(--space-3, 12px);
+}
+.fire-two__item dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.fire-two__item dd {
+  margin: 2px 0 0 22px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.fire-key {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 3px;
+}
+.fire-key--archive {
+  background: var(--color-fire-archive);
+  box-shadow: 0 0 6px rgba(255, 90, 60, 0.7);
+}
+.fire-key--live {
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff3b0 0 30%, #ff9f1a 55%, #b3261e 100%);
+}
+.fire-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.fire-day__date {
+  display: grid;
+  flex: 1;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.fire-day__date strong {
+  color: var(--text-1);
+  font-size: var(--fs-md, 15px);
+}
+.note--warn {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 176, 32, 0.12);
+  color: var(--text-2);
+}
+
+/* ---------- Cities layer on the globe ---------- */
+.globe__cities {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---------- Smoke over the globe and the map ---------- */
+.globe__smoke,
+.weather-map__smoke {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.smoke-open {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--r-row);
+  background: linear-gradient(120deg, rgb(120 120 130 / 0.35), rgb(255 120 40 / 0.22));
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  transition: filter 0.2s ease;
+}
+.smoke-open:hover {
+  filter: brightness(1.15);
+}
+.smoke-open strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+.smoke-open span {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.smoke-player {
+  position: absolute;
+  top: var(--top-h);
+  right: var(--gutter);
+  z-index: var(--z-float);
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  overflow: auto;
+  width: 420px;
+  max-width: calc(100% - 2 * var(--gutter));
+  max-height: calc(100svh - var(--top-h) - var(--gutter));
+  padding: var(--space-4);
+  border-radius: var(--r-sheet);
+  background: var(--surface-glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-float);
+  animation: drawer-in 0.4s var(--ease-out);
+}
+.studio:has(.drawer) .smoke-player {
+  right: calc(var(--gutter) + var(--drawer-w) + var(--space-3));
+}
+.smoke-player__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.smoke-player__kicker {
+  margin: 0 0 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.smoke-player__title {
+  margin: 0;
+  font-size: var(--fs-lg, 18px);
+}
+.smoke-player__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.smoke-player__slider {
+  flex: 1;
+  min-width: 0;
+}
+.smoke-player__date {
+  display: grid;
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.smoke-player__date strong {
+  color: var(--text-1);
+  font-size: var(--fs-sm);
+}
+.smoke-legend {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+.smoke-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.smoke-key {
+  flex: none;
+  width: 18px;
+  height: 12px;
+  border-radius: 6px;
+}
+.smoke-key--smoke {
+  background: radial-gradient(circle at 35% 40%, #9b958e, #4a443f 70%, transparent 72%);
+}
+.smoke-key--fire {
+  border-radius: 50%;
+  width: 12px;
+  background: radial-gradient(circle, #fff4be 0 25%, #ff9628 55%, transparent 72%);
+}
+.smoke-key--wind {
+  height: 2px;
+  background: rgb(190 225 255 / 0.8);
+}
+.smoke-key--air {
+  width: 12px;
+  border-radius: 50%;
+  background: conic-gradient(#34d17a 0 33%, #ff9d3a 0 66%, #ff5a5f 0);
+}
+.smoke-story {
+  display: grid;
+  gap: 6px;
+}
+.smoke-story details,
+.smoke-live details {
+  padding: 8px 10px;
+  border-radius: var(--r-row);
+  background: var(--surface-2);
+}
+.smoke-story summary,
+.smoke-live summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.smoke-story p,
+.smoke-story ul,
+.smoke-live ul {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.smoke-story ul,
+.smoke-live ul {
+  padding-left: 18px;
+}
+
+.smoke-live {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--gutter) + 64px);
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  width: 360px;
+  max-width: calc(100% - 2 * var(--gutter));
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-sheet);
+  background: var(--surface-glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-float);
+  transform: translateX(-50%);
+}
+.smoke-live header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.smoke-live h2 {
+  margin: 0;
+  font-size: var(--fs-md, 15px);
+}
+.smoke-live__clock {
+  margin: 0;
+  color: rgb(190 225 255);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.smoke-live__sub {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.fire-card__smoke {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+/* ---------- City card and the comparison by everything ---------- */
+.city-card {
+  position: absolute;
+  top: var(--top-h);
+  right: var(--gutter);
+  z-index: var(--z-float);
+  display: grid;
+  gap: var(--space-3);
+  width: 360px;
+  max-width: calc(100% - 2 * var(--gutter));
+  max-height: calc(100svh - var(--top-h) - var(--gutter));
+  overflow: auto;
+  padding: var(--space-4);
+  border-radius: var(--r-sheet);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-float);
+  animation: drawer-in 0.4s var(--ease-out);
+}
+.studio:has(.drawer) .city-card {
+  right: calc(var(--gutter) + var(--drawer-w) + var(--space-3));
+}
+.weather-map .city-card {
+  z-index: 8;
+}
+.city-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.city-card__kind {
+  margin: 0 0 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.city-card__title {
+  margin: 0;
+  font-size: var(--fs-xl, 22px);
+}
+.city-card__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.city-card__facts div {
+  padding: 8px 10px;
+  border-radius: var(--r-row);
+  background: var(--surface-2);
+}
+.city-card__facts dt {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.25;
+}
+.city-card__facts dd {
+  margin: 4px 0 0;
+  font-weight: 650;
+  font-size: var(--fs-md, 15px);
+}
+.city-card__sub {
+  margin: 0 0 4px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.city-card__now ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.city-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.place-cmp__slot {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0b0e14;
+}
+.place-cmp__slot--a {
+  background: var(--color-series-a);
+}
+.place-cmp__slot--b {
+  background: var(--color-series-b);
+}
+.place-cmp {
+  display: grid;
+  gap: var(--space-2);
+}
+.place-cmp__title {
+  margin: 0;
+  font-size: var(--fs-md, 15px);
+}
+.place-cmp__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--fs-sm);
+}
+.place-cmp__table th,
+.place-cmp__table td {
+  padding: 6px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+}
+.place-cmp__table thead th {
+  font-weight: 650;
+}
+.place-cmp__table th small,
+.place-cmp__table td small {
+  display: block;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+}
+.place-cmp__row {
+  width: 38%;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: help;
+}
+.place-cmp__group th {
+  padding-top: 12px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.place-cmp__bar {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--text-3);
+}
+.place-cmp__win strong {
+  color: #6fe3a0;
+}
+.place-cmp__win .place-cmp__bar {
+  background: #34d17a;
+}
+.place-cmp__lose .place-cmp__bar {
+  background: #ff7a6b;
+}
+.place-cmp__wait,
+.place-cmp__none {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.place-cmp__help dl {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.place-cmp__help dt {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.place-cmp__help dd {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .smoke-player,
+  .city-card {
+    top: auto;
+    right: var(--gutter);
+    bottom: var(--gutter);
+    left: var(--gutter);
+    width: auto;
+    max-height: 58svh;
+  }
+  .smoke-live {
+    bottom: calc(var(--gutter) + 120px);
+  }
+}
+
+/* ---------- Where most fire burns now ---------- */
+.hotspot-list {
+  display: grid;
+  gap: 6px;
+}
+.hotspot {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-row);
+  background: var(--surface-2);
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+}
+.hotspot:hover {
+  background: var(--fill-2, rgb(255 255 255 / 0.08));
+}
+.hotspot__name {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+.hotspot__meta {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.hotspot__up {
+  color: #ff7a6b;
+}
+.hotspot__down {
+  color: #6fe3a0;
+}
+
+/* ---------- Strikes and their smoke on the 2D map ---------- */
+.strike-list {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+.hotspot[aria-pressed='true'] {
+  outline: 2px solid #ff5a3c;
+}
+.weather-map .smoke-player {
+  right: auto;
+  left: var(--gutter);
+  z-index: 8;
+}

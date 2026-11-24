@@ -134,3 +134,25 @@ export function drawWar(data: WarData, box: Box = WAR_BOX, maxWidth = 4096): HTM
   ctx.globalAlpha = 1;
   return canvas;
 }
+
+function inRings(rings: number[][], lat: number, lon: number): boolean {
+  let hit = false;
+  for (const r of rings) {
+    for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2) {
+      const xi = r[i];
+      const yi = r[i + 1];
+      const xj = r[j];
+      const yj = r[j + 1];
+      if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi + 1e-12) + xi) hit = !hit;
+    }
+  }
+  return hit;
+}
+
+/** The status of the hromada at a place in the official list, or null outside every listed one. */
+export function warStatusAt(data: WarData, lat: number, lon: number): 'occupied' | 'partly' | 'combat' | null {
+  for (const kind of ['occupied', 'partly', 'combat'] as const) {
+    if (data[kind].some((rings) => inRings(rings, lat, lon))) return kind;
+  }
+  return null;
+}

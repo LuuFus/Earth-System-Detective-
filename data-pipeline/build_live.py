@@ -34,9 +34,19 @@ GitHub Action starts with no files). One byte per value, 255 = no value:
     dust   dust, (byte / 5.6)^2 ug/m3
 Arrays [time][variable][row north to south][column west to east].
 
+Radiation: the background gamma dose rate at fixed stations around the world, as radiation.json:
+official networks with open data (Germany: BfS ODL, about 1700 probes; Finland: STUK through the
+Finnish Meteorological Institute, about 250) and volunteers' counters (Safecast, CC0; Geiger
+counters of Sensor.Community, ODbL). Volunteer counters give counts per minute; they are turned
+into uSv/h with the factor of each tube (Safecast: 334 counts a minute per uSv/h for the LND 7317
+and 7318, 108 for the LND 712 and 7128; Sensor.Community: the MultiGeiger factors). Readings
+older than 48 hours are left out. Each point: [lat, lon, uSv/h, minutes old, source].
+The Ukrainian stations (SaveEcoBot) are read by the site itself, every five minutes.
+
 Binary files are zlib-compressed (the site inflates them with DecompressionStream).
 
-Output: frontend/public/data/live/manifest.json, weather/fNNN.bin, fires.bin, air.json, airq.bin
+Output: frontend/public/data/live/manifest.json, weather/fNNN.bin, fires.bin, air.json, airq.bin,
+radiation.json
 """
 
 from __future__ import annotations
@@ -47,6 +57,7 @@ import datetime as dt
 import io
 import json
 import math
+import re
 import sys
 import time
 import urllib.error
@@ -350,9 +361,12 @@ def aqi_from(c: float, table) -> int:
     return 500
 
 
-def build_air(now: dt.datetime) -> dict:
+def sensor_community() -> list:
+    return json.loads(get(SENSOR_COMMUNITY, timeout=300).decode("utf-8"))
+
+
+def build_air(now: dt.datetime, rows: list) -> dict:
     print("Sensor.Community air")
-    rows = json.loads(get(SENSOR_COMMUNITY, timeout=300).decode("utf-8"))
     by_place: dict = {}
     for r in rows:
         loc = r.get("location") or {}
@@ -413,6 +427,137 @@ def build_air(now: dt.datetime) -> dict:
         "file": "air.json",
         "count": len(points),
     }
+
+
+# ---------- radiation ----------
+
+BFS = ("https://www.imis.bfs.de/ogc/opendata/ows?service=WFS&version=1.1.0&request=GetFeature"
+       "&typeName=opendata:odlinfo_odl_1h_latest&outputFormat=application/json")
+STUK = ("https://opendata.fmi.fi/wfs?service=WFS&version=2.0.0&request=getFeature"
+        "&storedquery_id=stuk::observations::external-radiation::latest::multipointcoverage")
+SAFECAST = "https://tt.safecast.org/devices"
+RAD_SOURCES = [
+    {"id": "bfs", "name": "BfS ODL (Germany)", "url": "https://odlinfo.bfs.de/", "licence": "dl-de/by-2-0", "kind": "official"},
+    {"id": "stuk", "name": "STUK (Finland)", "url": "https://en.ilmatieteenlaitos.fi/open-data", "licence": "CC BY 4.0", "kind": "official"},
+    {"id": "safecast", "name": "Safecast", "url": "https://safecast.org/", "licence": "CC0", "kind": "volunteer"},
+    {"id": "sensor", "name": "Sensor.Community", "url": "https://sensor.community/", "licence": "ODbL", "kind": "volunteer"},
+]
+# Counts a minute for 1 uSv/h (Cs-137), by tube.
+SAFECAST_TUBES = [("lnd_7318u", 334.0), ("lnd_7318c", 334.0), ("lnd_7317", 334.0), ("lnd_7128ec", 108.0), ("lnd_712u", 108.0)]
+# MultiGeiger (Sensor.Community): uSv/h per count a second.
+SENSOR_TUBES = {"Radiation SBM-20": 1 / 2.47, "Radiation SBM-19": 1 / 9.81888, "Radiation Si22G": 1 / 12.2792}
+MAX_AGE_MIN = 48 * 60
+
+
+def iso_time(text: str) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(text.replace("Z", "+00:00").replace(" ", "T")).astimezone(dt.timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+def rad_bfs() -> list:
+    out = []
+    for f in json.loads(get(BFS, timeout=180).decode("utf-8"))["features"]:
+        p = f["properties"]
+        v = p.get("value")
+        when = iso_time(p.get("end_measure") or "")
+        if p.get("site_status") != 1 or v is None or when is None:
+            continue
+        lon, lat = f["geometry"]["coordinates"][:2]
+        out.append((lat, lon, float(v), when))
+    return out
+
+
+def rad_stuk() -> list:
+    text = get(STUK, timeout=180).decode("utf-8")
+    pos = re.search(r"<gmlcov:positions>(.*?)</gmlcov:positions>", text, re.S)
+    vals = re.search(r"<gml:doubleOrNilReasonTupleList>(.*?)</gml:doubleOrNilReasonTupleList>", text, re.S)
+    fields = re.findall(r'<swe:field name="([^"]+)"', text)
+    if not pos or not vals or "DR_PT10M_avg" not in fields:
+        return []
+    p = pos.group(1).split()
+    v = vals.group(1).split()
+    k = fields.index("DR_PT10M_avg")
+    out = []
+    for i in range(len(p) // 3):
+        try:
+            usv = float(v[i * len(fields) + k])
+        except (ValueError, IndexError):
+            continue
+        if not math.isfinite(usv):
+            continue
+        when = dt.datetime.fromtimestamp(int(p[i * 3 + 2]), dt.timezone.utc)
+        out.append((float(p[i * 3]), float(p[i * 3 + 1]), usv, when))
+    return out
+
+
+def rad_safecast() -> list:
+    out = []
+    for d in json.loads(get(SAFECAST, timeout=180).decode("utf-8")):
+        when = iso_time(d.get("when_captured") or "")
+        lat, lon = d.get("loc_lat"), d.get("loc_lon")
+        if when is None or lat is None or lon is None:
+            continue
+        for key, per_usv in SAFECAST_TUBES:
+            cpm = d.get(key)
+            if isinstance(cpm, (int, float)) and cpm > 0:
+                out.append((float(lat), float(lon), cpm / per_usv, when))
+                break
+    return out
+
+
+def rad_sensor(rows: list) -> list:
+    out = {}
+    for r in rows:
+        name = ((r.get("sensor") or {}).get("sensor_type") or {}).get("name")
+        factor = SENSOR_TUBES.get(name)
+        loc = r.get("location") or {}
+        if factor is None or str(loc.get("indoor", "0")) == "1":
+            continue
+        cpm = next((v.get("value") for v in r.get("sensordatavalues") or [] if v.get("value_type") == "counts_per_minute"), None)
+        when = iso_time((r.get("timestamp") or "") + "Z")
+        try:
+            lat, lon, cpm = float(loc["latitude"]), float(loc["longitude"]), float(cpm)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if when is None or cpm <= 0:
+            continue
+        out[(round(lat, 3), round(lon, 3))] = (lat, lon, cpm / 60 * factor, when)
+    return list(out.values())
+
+
+def build_radiation(now: dt.datetime, rows: list | None) -> dict:
+    print("Radiation")
+    readers = [("bfs", rad_bfs), ("stuk", rad_stuk), ("safecast", rad_safecast)]
+    if rows is not None:
+        readers.append(("sensor", lambda: rad_sensor(rows)))
+    ids = [x["id"] for x in RAD_SOURCES]
+    points, used = [], []
+    for sid, read in readers:
+        try:
+            got = read()
+        except Exception as e:  # one network down leaves the others
+            print(f"  {sid}: {e}")
+            continue
+        kept = 0
+        for lat, lon, usv, when in got:
+            age = int((now - when).total_seconds() // 60)
+            # Over 48 hours old, a clock in the future, or a value no working probe gives.
+            if age > MAX_AGE_MIN or age < -60 or not (0.01 <= usv <= 100):
+                continue
+            points.append([round(lat, 3), round(lon, 3), round(usv, 3), max(0, age), ids.index(sid)])
+            kept += 1
+        print(f"  {sid}: {kept} of {len(got)}")
+        if kept:
+            used.append(sid)
+    if not points:
+        raise RuntimeError("no radiation readings")
+    (OUT / "radiation.json").write_text(
+        json.dumps({"built": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "sources": RAD_SOURCES, "p": points}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    return {"file": "radiation.json", "count": len(points), "sources": used}
 
 
 # ---------- air quality forecast (CAMS through Open-Meteo) ----------
@@ -517,6 +662,7 @@ def main() -> None:
     ap.add_argument("--no-fires", action="store_true", help="skip the fires")
     ap.add_argument("--no-air", action="store_true", help="skip the air sensors")
     ap.add_argument("--no-airq", action="store_true", help="skip the air quality forecast")
+    ap.add_argument("--no-rad", action="store_true", help="skip the radiation stations")
     args = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     now = dt.datetime.now(dt.timezone.utc)
@@ -533,11 +679,22 @@ def main() -> None:
             manifest["fires"] = build_fires(now)
         except Exception as e:
             failures.append(f"fires: {e}")
-    if not args.no_air:
+    rows = None
+    if not args.no_air or not args.no_rad:
         try:
-            manifest["air"] = build_air(now)
+            rows = sensor_community()
+        except Exception as e:
+            failures.append(f"Sensor.Community: {e}")
+    if not args.no_air and rows is not None:
+        try:
+            manifest["air"] = build_air(now, rows)
         except Exception as e:
             failures.append(f"air: {e}")
+    if not args.no_rad:
+        try:
+            manifest["radiation"] = build_radiation(now, rows)
+        except Exception as e:
+            failures.append(f"radiation: {e}")
     if not args.no_airq:
         try:
             manifest["airq"] = build_airq(now, manifest)

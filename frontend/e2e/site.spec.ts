@@ -290,3 +290,126 @@ test('on a phone, the home and war pages fit the screen', async ({ page }) => {
     expect(wide, path).toBe(0);
   }
 });
+
+test('cities: the layer on the globe, a city from the search, two cities compared by everything', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/explore?b=1&on=cities&cam=49.00,31.00,1.6');
+  // City dots, names and population, drawn on their own canvas over the globe.
+  const names = page.locator('canvas.globe__cities');
+  await expect(names).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(() =>
+      names.evaluate((c: HTMLCanvasElement) => {
+        const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+        let n = 0;
+        for (let i = 3; i < d.length; i += 4 * 16) if (d[i] > 0) n++;
+        return n;
+      }),
+    )
+    .toBeGreaterThan(300);
+  const search = page.getByRole('combobox', { name: 'Пошук країни або міста' });
+  await search.fill('Харків');
+  await search.press('Enter');
+  const card = page.locator('.city-card');
+  await expect(card).toContainText('Харків');
+  await expect(card).toContainText('Населення агломерації');
+  await card.getByRole('button', { name: 'Порівняти: місце A' }).click();
+  await search.fill('Львів');
+  await search.press('Enter');
+  await page.locator('.city-card').getByRole('button', { name: 'Порівняти: місце B' }).click();
+  // The analysis opens on the comparison by everything, with numbers that arrive one by one.
+  const table = page.locator('.place-cmp');
+  await expect(table).toContainText('Порівняння за всім');
+  await expect(table).toContainText('Харків');
+  await expect(table).toContainText('Львів');
+  await expect(table.locator('tr', { hasText: /^Населення/ })).toContainText('803');
+  await expect(table.locator('tr', { hasText: 'Густота населення' })).toContainText('4');
+  expect(errors).toEqual([]);
+});
+
+test('fires: the two layers are explained, and the live fires hide while years are compared', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/explore?panel=fires&on=fires');
+  const panel = page.locator('.flyout');
+  await expect(panel).toContainText('Два шари пожеж: у чому різниця');
+  await panel.getByRole('button', { name: 'Показати архів за вчора' }).click();
+  await expect(page).toHaveURL(/v=fires/);
+  await expect(panel).toContainText('Доба архіву');
+  await expect(panel).toContainText('NOAA-20');
+  // The comparison shutter: the 48-hour points are about today, not the years on the shutter.
+  await page.goto('/explore?panel=fires&on=fires&v=fires&cmp=2021');
+  await expect(page.locator('.flyout')).toContainText('пожежі за 48 годин сховано');
+  expect(errors).toEqual([]);
+});
+
+test('map of Ukraine: air quality and radiation take turns, fires have a card', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/map?mode=ukraine');
+  const air = page.locator('.wm-ua .switch', { hasText: 'Якість повітря' }).locator('input');
+  const rad = page.locator('.wm-ua .switch', { hasText: 'Радіаційний фон' }).locator('input');
+  await expect(air).toBeChecked();
+  await page.locator('.wm-ua .switch', { hasText: 'Радіаційний фон' }).click();
+  await expect(rad).toBeChecked();
+  await expect(air).not.toBeChecked();
+  await page.locator('.wm-ua .switch', { hasText: 'Якість повітря' }).click();
+  await expect(rad).not.toBeChecked();
+  // The fires legend explains how to get a fire's card.
+  await expect(page.locator('.wm-ua')).toContainText('Клацніть пожежу');
+  expect(errors).toEqual([]);
+});
+
+test('smoke: a fire story shows where the wind took the smoke, with what to do', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/explore?panel=fires');
+  await page.locator('.story-card', { hasText: 'Чорнобильська зона' }).click();
+  await page.getByRole('button', { name: /Дим і вітер/ }).click();
+  const player = page.locator('.smoke-player');
+  await expect(player).toContainText('Чорнобильська зона');
+  await expect(player).toContainText('Що з цим робити');
+  // Once the wind of those days and the towns' air arrive, the smoke canvas is drawn.
+  const smoke = page.locator('canvas.globe__smoke');
+  await expect(smoke).toBeVisible({ timeout: 40_000 });
+  await expect
+    .poll(
+      () =>
+        smoke.evaluate((c: HTMLCanvasElement) => {
+          const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+          let n = 0;
+          for (let i = 3; i < d.length; i += 4 * 16) if (d[i] > 0) n++;
+          return n;
+        }),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(200);
+  await player.getByText('Що з цим робити').click();
+  await expect(player).toContainText('FFP2');
+  expect(errors).toEqual([]);
+});
+
+test('fires now: the biggest hotspots of the world, each with a worked-out forecast', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/explore?panel=fires');
+  const hotspots = page.locator('.hotspot');
+  await expect(hotspots.first()).toBeVisible({ timeout: 30_000 });
+  expect(await hotspots.count()).toBeGreaterThan(2);
+  await hotspots.first().click();
+  const player = page.locator('.smoke-player');
+  await expect(player).toContainText('Що бачать супутники');
+  await expect(player).toContainText('за останню добу', { ignoreCase: true });
+  await expect(player).toContainText('FFWI', { timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+test('map of Ukraine: strikes with fires, and the smoke of one on the map', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/map?mode=ukraine');
+  const strikes = page.locator('.strike-list .hotspot');
+  await expect(strikes.first()).toBeVisible({ timeout: 30_000 });
+  expect(await strikes.count()).toBeGreaterThan(3);
+  await strikes.filter({ hasText: 'Масована атака на Київ' }).click();
+  const player = page.locator('.smoke-player');
+  await expect(player).toContainText('Масована атака на Київ');
+  await player.getByText('Що з цим робити').click();
+  await expect(player).toContainText('101');
+  expect(errors).toEqual([]);
+});

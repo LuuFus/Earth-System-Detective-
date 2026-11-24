@@ -101,16 +101,6 @@ export const RAMP: [number, number, number][] = [
 
 export const RAMP_CSS = RAMP.map(([r, g, b]) => `rgb(${r} ${g} ${b})`);
 
-/** t in [-1, 1] to an RGB triple. */
-export function rampColor(t: number): [number, number, number] {
-  const x = (Math.max(-1, Math.min(1, t)) + 1) * 0.5 * (RAMP.length - 1);
-  const i = Math.min(RAMP.length - 2, Math.floor(x));
-  const f = x - i;
-  const a = RAMP[i];
-  const b = RAMP[i + 1];
-  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
-}
-
 /** Texture for the globe's data layer: R = position on the colour ramp (0..1) times validity,
  * G = validity, B = significance times validity. Premultiplying lets linear filtering average
  * only cells that have data, so the field draws smooth instead of square. */

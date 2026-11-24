@@ -17,6 +17,9 @@ import { StatCard, type StatRange } from '../ui/StatCard';
 import { SeasonChart } from '../SeasonChart';
 import { Icon } from './Icon';
 import { Methods } from './Methods';
+import { PlaceCompare } from './PlaceCompare';
+import type { LiveManifest } from '../../data/live';
+import { usePlacesText } from '../../i18n/places';
 
 type Props = {
   chartVariable: VariableId;
@@ -47,6 +50,8 @@ type Props = {
   onRadius: (km: number) => void;
   onSeason: (season: Season) => void;
   onChartView: (view: ChartView) => void;
+  /** For the comparison of two places by everything. */
+  manifest: LiveManifest | null;
 };
 
 const RADII = [0, 250, 500, 1000];
@@ -69,7 +74,15 @@ export function AnalysisDrawer(p: Props) {
   const s = useStudio();
   const a = s.analysis;
   const chartRef = useRef<ChartHandle>(null);
-  const [tab, setTab] = useState<'result' | 'methods'>('result');
+  const [tab, setTab] = useState<'result' | 'places' | 'methods'>('result');
+  const placesText = usePlacesText().compare;
+  // A city picked from the Cities layer or the search opens the comparison by everything.
+  const cityKey = [p.regionA, p.regionB].map((r) => (r?.kind === 'point' && r.city ? `${r.lat},${r.lon}` : '')).join('|');
+  const [cityTabFor, setCityTabFor] = useState('');
+  if (cityKey !== cityTabFor) {
+    setCityTabFor(cityKey);
+    if (cityKey !== '|') setTab('places');
+  }
   const [seasonSlot, setSeasonSlot] = useState<'A' | 'B'>('A');
   const [width, setWidth] = useState<number | null>(null);
   const [geo, setGeo] = useState<GeoCountry[]>([]);
@@ -297,15 +310,16 @@ export function AnalysisDrawer(p: Props) {
 
         {p.regionA && (
           <div className="seg drawer__tabs" role="tablist" aria-label={a.title}>
-            {(['result', 'methods'] as const).map((id) => (
+            {(['result', 'places', 'methods'] as const).map((id) => (
               <button key={id} type="button" role="tab" className="seg__btn" aria-selected={tab === id} aria-pressed={tab === id} onClick={() => setTab(id)}>
-                {a.tabs[id]}
+                {id === 'places' ? placesText.tab : a.tabs[id]}
               </button>
             ))}
           </div>
         )}
 
         {p.regionA && tab === 'methods' && <Methods results={results} unit={unit} perDecade={perDecade} view={view} />}
+        {p.regionA && tab === 'places' && <PlaceCompare regionA={p.regionA} regionB={p.regionB} manifest={p.manifest} />}
 
         {p.regionA && tab === 'result' && (
           <>

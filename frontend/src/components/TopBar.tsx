@@ -38,8 +38,6 @@ export function Wordmark() {
   );
 }
 
-export type MapMode = 'ukraine' | 'weather';
-
 /**
  * 3D globe or 2D map. The 2D button opens a choice on hover (or tap): the Ukraine map or the
  * weather forecast; either can show the other's layers once open.

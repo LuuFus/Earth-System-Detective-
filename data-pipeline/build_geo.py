@@ -6,6 +6,9 @@ published at github.com/nvkelso/natural-earth-vector and writes
   frontend/public/data/geo/countries.json  country outlines for comparing two countries
   frontend/public/data/geo/labels.json     capitals, oceans and seas, rivers (lines and names)
   frontend/public/data/geo/borders.json    land borders and coastlines drawn on the globe
+  frontend/public/data/geo/cities.json     cities of 100 000 people and more, every Ukrainian city
+                                           Natural Earth has, and every capital: names, population,
+                                           built-up area, for the Cities layer, search and comparisons
 
 Every name is given in Ukrainian and English. Natural Earth has Ukrainian names for
 countries, capitals and seas; river names are translated below (only the rivers listed
@@ -40,7 +43,30 @@ LAYERS = {
     "rivers": "ne_10m_rivers_lake_centerlines",
     "borders": "ne_50m_admin_0_boundary_lines_land",
     "coast": "ne_50m_coastline",
+    "cities": "ne_10m_populated_places",
 }
+
+# Cities renamed since Natural Earth took their names, and spellings Ukraine uses in English.
+CITY_NAMES = {
+    "Kirovohrad": ("Кропивницький", "Kropyvnytskyi"),
+    "Illichivsk": ("Чорноморськ", "Chornomorsk"),
+    "Odessa": ("Одеса", "Odesa"),
+    "Zaporizhzhya": ("Запоріжжя", "Zaporizhzhia"),
+    "Mykolayiv": ("Миколаїв", "Mykolaiv"),
+    "Khmelnytskyy": ("Хмельницький", "Khmelnytskyi"),
+    "Vinnytsya": ("Вінниця", "Vinnytsia"),
+    "Uzhgorod": ("Ужгород", "Uzhhorod"),
+    "Kamyanets-Podilskyy": ("Кам'янець-Подільський", "Kamianets-Podilskyi"),
+    "Izmayil": ("Ізмаїл", "Izmail"),
+    "Kupyansk": ("Куп'янськ", "Kupiansk"),
+    "Makiyivka": ("Макіївка", "Makiivka"),
+    "Chernobyl": ("Чорнобиль", "Chornobyl"),
+    "Simferopol": ("Сімферополь", "Simferopol"),
+    "Sevastapol": ("Севастополь", "Sevastopol"),
+    "Sevastopol": ("Севастополь", "Sevastopol"),
+    "Kerch": ("Керч", "Kerch"),
+}
+CRIMEA = (44.3, 46.3, 32.4, 36.7)  # s, n, w, e
 
 # Rivers: Natural Earth English name -> Ukrainian name. Several spellings of one river map
 # to the same Ukrainian name and get one label.
@@ -296,6 +322,29 @@ def build_capitals() -> list:
     return out
 
 
+def build_cities() -> list:
+    """[uk, en, lat, lon, ISO code, population, built-up area km², rank, capital]."""
+    out = []
+    for f in fetch(LAYERS["cities"])["features"]:
+        p = f["properties"]
+        pop = int(p.get("POP_MAX") or 0)
+        code = p.get("ISO_A2") or ""
+        lat, lon = p["LATITUDE"], p["LONGITUDE"]
+        s, n, w, e = CRIMEA
+        if code in ("RU", "-99") and s <= lat <= n and w <= lon <= e:
+            code = "UA"
+        cap = 1 if p.get("ADM0CAP") == 1 else 0
+        if not (pop >= 100_000 or code == "UA" or cap):
+            continue
+        if code == "-99" or not code:
+            code = ""
+        uk, en = CITY_NAMES.get(p["NAME"], (p.get("NAME_UK") or p.get("NAME_EN") or p["NAME"], p.get("NAME_EN") or p["NAME"]))
+        area = p.get("MAX_AREAKM") or p.get("MIN_AREAKM") or 0
+        out.append([uk, en, round(lat, 3), round(lon, 3), code, pop, int(area), int(p.get("SCALERANK") or 10), cap])
+    out.sort(key=lambda c: -c[5])
+    return out
+
+
 def build_seas() -> list:
     out = []
     for f in fetch(LAYERS["marine"])["features"]:
@@ -385,10 +434,18 @@ def main() -> None:
     )
     labels = {"source": source, "built": built, "capitals": build_capitals(), "seas": build_seas(), "rivers": build_rivers()}
     (OUT / "labels.json").write_text(json.dumps(labels, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    cities = build_cities()
+    (OUT / "cities.json").write_text(
+        json.dumps({"source": "Natural Earth populated places 10m (naturalearthdata.com), public domain: POP_MAX, MAX_AREAKM",
+                    "built": built, "fields": ["uk", "en", "lat", "lon", "code", "pop", "areaKm2", "rank", "capital"], "cities": cities},
+                   ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    print(len(cities), "cities")
     borders = {"source": source, "built": built, **build_borders()}
     (OUT / "borders.json").write_text(json.dumps(borders, separators=(",", ":")), encoding="utf-8")
     print(len(borders["land"]), "border lines,", len(borders["disputed"]), "disputed,", len(borders["coast"]), "coast lines")
-    for name in ("countries.json", "labels.json", "borders.json"):
+    for name in ("countries.json", "labels.json", "borders.json", "cities.json"):
         print(name, (OUT / name).stat().st_size // 1024, "KB")
     print(len(countries), "countries,", len(labels["capitals"]), "capitals,", len(labels["seas"]), "seas,",
           len(labels["rivers"]["lines"]), "river lines,", len(labels["rivers"]["labels"]), "river names")

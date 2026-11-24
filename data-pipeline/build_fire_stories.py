@@ -1,7 +1,12 @@
 """Fire stories: how big fires spread and died out, day by day, from NASA FIRMS archives.
 
-Source: NASA FIRMS yearly country archives, VIIRS 375 m on Suomi NPP (public, no key):
-  https://firms.modaps.eosdis.nasa.gov/data/country/viirs-snpp/<year>/viirs-snpp_<year>_<Country>.csv
+Source: NASA FIRMS yearly country archives, VIIRS 375 m on Suomi NPP and, for the war stories,
+also NOAA-20 (public, no key):
+  https://firms.modaps.eosdis.nasa.gov/data/country/<satellite>/<year>/<satellite>_<year>_<Country>.csv
+  satellite: viirs-snpp, viirs-jpss1 (NOAA-20)
+
+War stories ("war": true) keep "other static land sources" too (type 2): FIRMS marks burning
+plants, depots and ports that way, while vegetation fires are type 0.
 
 Kept: type 0 (vegetation fires, including fires started by shelling), nominal or high confidence,
 inside the story's box and dates. One point per 375 m pixel per day.
@@ -31,7 +36,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "data-pipeline" / "cache" / "fires"
 OUT = ROOT / "frontend" / "public" / "data" / "fires"
-URL = "https://firms.modaps.eosdis.nasa.gov/data/country/viirs-snpp/{y}/viirs-snpp_{y}_{c}.csv"
+URL = "https://firms.modaps.eosdis.nasa.gov/data/country/{s}/{y}/{s}_{y}_{c}.csv"
 AGENT = "EarthSystemDetective/1.0 (open-source educational site)"
 
 STORIES = [
@@ -72,6 +77,62 @@ STORIES = [
         "text": {
             "uk": "Від початку повномасштабного вторгнення супутники бачать пожежі вздовж фронту: від обстрілів горять поля, ліси й села. Подивіться, як смуга вогню рухається разом із лінією фронту, а восени 2022 року зміщується після звільнення Харківщини й Херсона.",
             "en": "Since the full-scale invasion began, satellites have seen fires along the front: shelling sets fields, forests and villages alight. Watch the band of fire move with the front line, and shift in autumn 2022 after the liberation of the Kharkiv region and Kherson.",
+        },
+    },
+    {
+        "id": "vasylkiv-2022",
+        "country": "Ukraine",
+        "war": True,
+        "box": {"w": 29.9, "s": 50.0, "e": 30.7, "n": 50.4},
+        "start": "2022-02-26",
+        "end": "2022-03-03",
+        "camera": {"lat": 50.2, "lon": 30.3, "distance": 1.03},
+        "title": {"uk": "Нафтобаза під Васильковом, лютий 2022", "en": "Oil depot near Vasylkiv, February 2022"},
+        "text": {
+            "uk": "У ніч на 27 лютого 2022 року російська ракета влучила в нафтобазу біля Василькова (село Крячки) під Києвом. Загорілися резервуари з пальним; гасити їх заважали бої за васильківський аеродром, і пожежа тривала кілька днів. Чорний дим від нафтопродуктів понесло вітром над Київщиною.",
+            "en": "In the night of 27 February 2022 a Russian missile hit an oil depot by Vasylkiv (the village of Kriachky) near Kyiv. Fuel tanks caught fire; fighting for the Vasylkiv airfield kept firefighters away, and the fire burned for days. Black smoke from the fuel drifted over the Kyiv region.",
+        },
+    },
+    {
+        "id": "azot-2022",
+        "country": "Ukraine",
+        "war": True,
+        "box": {"w": 38.3, "s": 48.85, "e": 38.7, "n": 49.05},
+        "start": "2022-06-10",
+        "end": "2022-06-14",
+        "camera": {"lat": 48.95, "lon": 38.5, "distance": 1.03},
+        "title": {"uk": "Завод «Азот» у Сєвєродонецьку, червень 2022", "en": "The Azot plant in Sievierodonetsk, June 2022"},
+        "text": {
+            "uk": "11 червня 2022 року під час боїв за Сєвєродонецьк російський обстріл пошкодив хімічний завод «Азот»: з пробитих радіаторів витекли десятки тонн оливи, і спалахнула сильна пожежа. У сховищах заводу тоді ховалися сотні цивільних.",
+            "en": "On 11 June 2022, during the battle for Sievierodonetsk, Russian shelling damaged the Azot chemical plant: tens of tonnes of oil leaked from broken radiators and a fierce fire broke out. Hundreds of civilians were sheltering in the plant's basements.",
+        },
+    },
+    {
+        "id": "odesa-ports-2023",
+        "country": "Ukraine",
+        "war": True,
+        "box": {"w": 30.5, "s": 46.2, "e": 30.9, "n": 46.6},
+        "start": "2023-07-17",
+        "end": "2023-07-21",
+        "camera": {"lat": 46.4, "lon": 30.7, "distance": 1.03},
+        "title": {"uk": "Порти Одеси й Чорноморська, липень 2023", "en": "The ports of Odesa and Chornomorsk, July 2023"},
+        "text": {
+            "uk": "Після виходу Росії із зернової угоди вона кілька ночей поспіль атакувала порти Одещини. У ніч на 19 липня 2023 року удари пошкодили зернові термінали в Одесі й Чорноморську; Мінагрополітики повідомило про 60 тисяч тонн знищеного зерна.",
+            "en": "After Russia left the grain deal it struck the ports of the Odesa region several nights in a row. In the night of 19 July 2023 strikes damaged grain terminals in Odesa and Chornomorsk; Ukraine's agriculture ministry reported 60,000 tonnes of grain destroyed.",
+        },
+    },
+    {
+        "id": "kyiv-2025",
+        "country": "Ukraine",
+        "war": True,
+        "box": {"w": 30.2, "s": 50.3, "e": 30.85, "n": 50.6},
+        "start": "2025-06-16",
+        "end": "2025-06-18",
+        "camera": {"lat": 50.45, "lon": 30.52, "distance": 1.03},
+        "title": {"uk": "Масована атака на Київ, 17 червня 2025", "en": "The mass attack on Kyiv, 17 June 2025"},
+        "text": {
+            "uk": "У ніч на 17 червня 2025 року Росія атакувала Київ сотнями дронів і десятками ракет. Балістична ракета зруйнувала під'їзд дев'ятиповерхівки в Солом'янському районі; лише там загинули 23 людини. У місті горіли житлові будинки й інші будівлі.",
+            "en": "In the night of 17 June 2025 Russia attacked Kyiv with hundreds of drones and dozens of missiles. A ballistic missile destroyed a section of a nine-storey block in the Solomianskyi district; 23 people died there alone. Homes and other buildings burned across the city.",
         },
     },
     {
@@ -142,11 +203,11 @@ STORIES = [
 ]
 
 
-def archive(country: str, year: int) -> Path:
+def archive(country: str, year: int, satellite: str = "viirs-snpp") -> Path:
     CACHE.mkdir(parents=True, exist_ok=True)
-    path = CACHE / f"viirs-snpp_{year}_{country}.csv"
+    path = CACHE / f"{satellite}_{year}_{country}.csv"
     if not path.exists():
-        url = URL.format(y=year, c=country)
+        url = URL.format(s=satellite, y=year, c=country)
         print(f"  downloading {url}")
         req = urllib.request.Request(url, headers={"User-Agent": AGENT})
         tmp = path.with_suffix(".part")
@@ -163,27 +224,31 @@ def build(story: dict) -> dict:
     b = story["box"]
     years = range(start.year, end.year + 1)
     cells: dict[tuple, list] = {}
+    war = story.get("war", False)
+    types = ("0", "2") if war else ("0",)
+    satellites = ("viirs-snpp", "viirs-jpss1") if war else ("viirs-snpp",)
     for y in years:
-        with open(archive(story["country"], y), newline="", encoding="utf-8") as f:
-            for r in csv.DictReader(f):
-                if r.get("type", "0") != "0" or (r.get("confidence") or "").lower() in ("l", "low"):
-                    continue
-                lat = float(r["latitude"])
-                lon = float(r["longitude"])
-                if not (b["s"] <= lat <= b["n"] and b["w"] <= lon <= b["e"]):
-                    continue
-                when = dt.datetime.strptime(f"{r['acq_date']} {int(r['acq_time']):04d}", "%Y-%m-%d %H%M").replace(tzinfo=dt.timezone.utc)
-                if not (start <= when < end):
-                    continue
-                hours = (when - start).total_seconds() / 3600
-                key = (int(hours // 24), round(lat / 0.0035), round(lon / 0.0035))
-                frp = float(r.get("frp") or 0)
-                old = cells.get(key)
-                if old is None:
-                    cells[key] = [lat, lon, hours, frp]
-                else:
-                    old[2] = min(old[2], hours)
-                    old[3] = max(old[3], frp)
+        for sat in satellites:
+            with open(archive(story["country"], y, sat), newline="", encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    if r.get("type", "0") not in types or (r.get("confidence") or "").lower() in ("l", "low"):
+                        continue
+                    lat = float(r["latitude"])
+                    lon = float(r["longitude"])
+                    if not (b["s"] <= lat <= b["n"] and b["w"] <= lon <= b["e"]):
+                        continue
+                    when = dt.datetime.strptime(f"{r['acq_date']} {int(r['acq_time']):04d}", "%Y-%m-%d %H%M").replace(tzinfo=dt.timezone.utc)
+                    if not (start <= when < end):
+                        continue
+                    hours = (when - start).total_seconds() / 3600
+                    key = (int(hours // 24), round(lat / 0.0035), round(lon / 0.0035))
+                    frp = float(r.get("frp") or 0)
+                    old = cells.get(key)
+                    if old is None:
+                        cells[key] = [lat, lon, hours, frp]
+                    else:
+                        old[2] = min(old[2], hours)
+                        old[3] = max(old[3], frp)
     pts = np.array(sorted(cells.values(), key=lambda p: p[2]), dtype=np.float64) if cells else np.zeros((0, 4))
     n = len(pts)
     qlat = np.round((pts[:, 0] - b["s"]) / (b["n"] - b["s"]) * 65535)

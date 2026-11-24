@@ -36,11 +36,6 @@ export function gibsGlobal(layer: string, width: number, format: 'image/jpeg' | 
   return gibsBox(layer, { s: -90, w: -180, n: 90, e: 180 }, width, width / 2, format);
 }
 
-/** GIBS renders WMS maps on request: 2048px arrives in about 2 s, 4096px in about 8 s,
- * so the globe loads the small map first and swaps in the sharp one when it lands.
- * Closer in, Globe.tsx asks GIBS for the visible box only (Blue Marble, 500 m per pixel). */
-export const earthDayMaps = [gibsGlobal('BlueMarble_NextGeneration', 2048), gibsGlobal('BlueMarble_NextGeneration', 4096)];
-
 /** Still shown at once and behind every clip: the Sun rising over the Earth's horizon, ISS, 22 February 2022. */
 export const filmPoster = 'https://images-assets.nasa.gov/image/iss066e152099/iss066e152099~large.jpg';
 

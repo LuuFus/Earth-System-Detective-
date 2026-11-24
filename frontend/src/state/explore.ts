@@ -59,6 +59,8 @@ export type ExploreState = {
   light: Light;
   /** Fires of the last 48 hours (NASA FIRMS). */
   liveFires: boolean;
+  /** Big cities of the world as dots with names (Natural Earth). */
+  cities: boolean;
   /** Ukraine card layers: air quality (SaveEcoBot), radiation (SaveEcoBot stations), the front (DeepState). */
   aqi: boolean;
   radiation: boolean;
@@ -99,6 +101,7 @@ export const initialState: ExploreState = {
   relief: true,
   light: 'flat',
   liveFires: false,
+  cities: false,
   aqi: false,
   radiation: false,
   front: false,
@@ -130,7 +133,7 @@ export type Action =
   | { type: 'speed'; speed: 1 | 2 | 4 }
   | { type: 'compare'; year: number | null }
   | { type: 'case'; c: Case }
-  | { type: 'set'; state: Partial<Pick<ExploreState, 'relief' | 'light' | 'liveFires' | 'aqi' | 'radiation' | 'front' | 'wind' | 'field'>> }
+  | { type: 'set'; state: Partial<Pick<ExploreState, 'relief' | 'light' | 'liveFires' | 'cities' | 'aqi' | 'radiation' | 'front' | 'wind' | 'field'>> }
   | { type: 'blackout'; on: boolean }
   /** An event's layer on its exact day. */
   | { type: 'show'; variable: VariableId; date: string }
@@ -237,8 +240,13 @@ export function reducer(state: ExploreState, action: Action): ExploreState {
         compare: c.compare ?? null,
       };
     }
-    case 'set':
-      return { ...state, ...action.state };
+    case 'set': {
+      const next = { ...state, ...action.state };
+      // Air bubbles and radiation tags would cover each other: one of them at a time.
+      if (action.state.radiation) next.aqi = false;
+      if (action.state.aqi) next.radiation = false;
+      return next;
+    }
     case 'blackout':
       // Night lights with the shutter: left before (2021), right during the blackouts (2022).
       return action.on
@@ -315,6 +323,7 @@ export function toQuery(state: ExploreState, view: CameraView | null): string {
   const on = [
     !state.relief && 'sat',
     state.liveFires && 'fires',
+    state.cities && 'cities',
     state.aqi && 'aqi',
     state.radiation && 'rad',
     state.front && 'front',
@@ -368,6 +377,7 @@ export function fromQuery(search: string): { state: Partial<ExploreState>; view:
   const on = new Set((q.get('on') ?? '').split(','));
   if (on.has('sat')) state.relief = false;
   if (on.has('fires')) state.liveFires = true;
+  if (on.has('cities')) state.cities = true;
   if (on.has('aqi')) state.aqi = true;
   if (on.has('rad')) state.radiation = true;
   if (on.has('front')) state.front = true;

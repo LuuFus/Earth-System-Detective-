@@ -11,10 +11,23 @@ import maplibregl, { type CanvasSource, type GeoJSONSource, type Map as MlMap } 
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CountrySearch } from '../components/CountrySearch';
+import { CountrySearch, type Found } from '../components/CountrySearch';
+import { SmokeMapLayer } from '../components/map/smokeMapLayer';
+import { SmokeSim, type SmokeSource } from '../components/globe/smoke';
+import { SmokePlayer } from '../components/studio/SmokePlayer';
+import { useLoaded } from '../hooks/useLoaded';
+import { useSmoke, type SmokeTarget } from '../hooks/useSmoke';
+import { WAR_STORIES } from '../data/smokeScenes';
+import { CityCard } from '../components/studio/CityCard';
+import { FireCard, type FireInfo } from '../components/studio/FireCard';
+import { cityPlace, cityRegion, loadCities, nearestCity, type CityPlace, type WorldCity } from '../data/cities';
+import { boxAround, forecastWind, townsInPlume } from '../data/smoke';
+import { usePlacesText } from '../i18n/places';
+import { useSmokeText } from '../i18n/smoke';
+import { useNavigate } from 'react-router-dom';
 import { FlowLayer, type Projection } from '../components/globe/flow';
 import { StationLayer, type Stations } from '../components/globe/stations';
-import { bordersGeo, firesGeo, frontGeo, maskGeo, outlineGeo, warGeo } from '../components/map/geo';
+import { addFlameImages, bordersGeo, citiesGeo, firesGeo, frontGeo, maskGeo, outlineGeo, strikesGeo, warGeo } from '../components/map/geo';
 import { AirCard } from '../components/studio/AirCard';
 import { RadCard } from '../components/studio/RadCard';
 import { OccupationPlayer } from '../components/studio/OccupationPlayer';
@@ -32,8 +45,8 @@ import { paintFieldAsync } from '../data/fieldPainter';
 import { ago, airqBounds, fieldValue, isAirKind, loadAir, loadAirq, loadFires, loadFrame, nearestFrame, useLiveManifest, type AirPoint, type FieldKind, type LiveFires, type LiveManifest, type WeatherFrame } from '../data/live';
 import { isOldRad, loadRadiation, nearestRad, RAD_COLORS, radBand, radLabel, type RadStation } from '../data/radiation';
 import { PointIndex } from '../data/nearby';
-import { AQI_COLORS, aqiBand, dailyVersions, loadAqi, loadFront, loadFrontHistory, type AqiStation } from '../data/ukraine';
-import { loadWar } from '../data/war';
+import { AQI_COLORS, aqiBand, dailyVersions, loadAqi, loadFront, loadFrontHistory, loadStories, type AqiStation, type FireStory } from '../data/ukraine';
+import { loadWar, warStatusAt } from '../data/war';
 import { useI18n } from '../i18n/I18n';
 import { useLiveText } from '../i18n/live';
 
@@ -88,7 +101,31 @@ const UKRAINE_BOUNDS: [[number, number], [number, number]] = [
   [40.3, 52.4],
 ];
 const GIBS3857 = (layer: string) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg`;
-const LAYER_IDS = (id: string) => [`${id}-fill`, `${id}-line`, `${id}-dot`];
+const LAYER_IDS = (id: string) => [`${id}-fill`, `${id}-line`, `${id}-dot`, `${id}-icon`, `${id}-label`];
+
+/** The fire or city nearest a click, within a few pixels (small markers are hard to hit exactly). */
+function pickAt(map: MlMap, p: { x: number; y: number }) {
+  const layers = ['strikes-dot', 'fires-icon', 'fires-dot', 'cities-dot'].filter((id) => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none');
+  if (!layers.length) return null;
+  const r = 10;
+  const found = map.queryRenderedFeatures([[p.x - r, p.y - r], [p.x + r, p.y + r]], { layers });
+  let best: (typeof found)[number] | null = null;
+  let bestD = Infinity;
+  for (const f of found) {
+    if (f.geometry.type !== 'Point') continue;
+    const [lon, lat] = f.geometry.coordinates;
+    const q = map.project([lon, lat]);
+    // Flames stand on their point: their middle is a little above it.
+    const dy = f.layer.id === 'fires-icon' ? q.y - 10 : q.y;
+    const d = Math.hypot(q.x - p.x, dy - p.y) - (f.layer.id.startsWith('fires') ? 2 : 0);
+    if (d < bestD) {
+      bestD = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
 
 type Radar = { host: string; frames: { time: number; path: string }[] };
 async function loadRadar(): Promise<Radar> {
@@ -135,7 +172,7 @@ export default function MapPage() {
   const [particles, setParticles] = useStored<'on' | 'off'>('wm-particles', 'on');
   const [weatherOver, setWeatherOver] = useStored<'on' | 'off'>('map-ua-weather', 'off');
   const weather = !uaMode || weatherOver === 'on';
-  const [ua, setUa] = useState({ aqi: true, fires: true, front: true, war: false, radiation: false });
+  const [ua, setUa] = useState({ aqi: true, fires: true, front: true, war: false, radiation: false, strikes: true });
   // The occupation timeline: DeepState week by week since 2022, played in place of the front.
   const [occOpen, setOccOpen] = useState(false);
   const [occ, setOcc] = useState<{ status: 'idle' | 'loading' | 'ready' | 'error'; history: OccHistory | null }>({ status: 'idle', history: null });
@@ -158,6 +195,30 @@ export default function MapPage() {
   }, []);
   const stationsLayer = useMemo(() => new StationLayer('weather-map__stations'), []);
   const radLayer = useMemo(() => new StationLayer('weather-map__rad', 'tag'), []);
+  // Smoke: its state and the canvas part (wind, towns) from the shared hook; the puffs are drawn
+  // on the map's WebGL context (Three.js) by a custom layer, above the map layers.
+  const smokeGl = useMemo(() => new SmokeMapLayer(), []);
+  const smokeTarget = useMemo<{ current: SmokeTarget }>(
+    () => ({
+      current: {
+        show: (layer, centre) => {
+          const m = mapRef.current;
+          if (layer && m && !m.getLayer(smokeGl.id)) m.addLayer(smokeGl);
+          smokeGl.show(layer, centre?.lat, centre?.lon);
+        },
+        look: ({ box }) => {
+          const wide = window.innerWidth > 900;
+          mapRef.current?.fitBounds([[box.w, box.s], [box.e, box.n]], { padding: { top: 80, bottom: 60, left: wide ? 460 : 20, right: wide ? 320 : 20 }, duration: 1200 });
+        },
+      },
+    }),
+    [smokeGl],
+  );
+  const closeSheet = useCallback(() => setSheet(false), []);
+  const smoke = useSmoke(smokeTarget, closeSheet, 'weather-map__smoke');
+  const smokeLayer = smoke.layer;
+  /** A smoke scene of the past is open: the live layers (air, radiation, fires of now) hide. */
+  const scene = smoke.state !== null;
 
   // ---------- the map ----------
   useEffect(() => {
@@ -198,6 +259,7 @@ export default function MapPage() {
     map.on('load', () => setReady(true));
     mapRef.current = map;
     el.appendChild(flow.canvas);
+    el.appendChild(smokeLayer.canvas);
     el.appendChild(radLayer.canvas);
     el.appendChild(stationsLayer.canvas);
     const resize = () => {
@@ -205,6 +267,7 @@ export default function MapPage() {
       flow.resize(el.clientWidth, el.clientHeight, dpr);
       stationsLayer.resize(el.clientWidth, el.clientHeight, dpr);
       radLayer.resize(el.clientWidth, el.clientHeight, dpr);
+      smokeLayer.resize(el.clientWidth, el.clientHeight, dpr);
     };
     resize();
     map.on('resize', resize);
@@ -214,10 +277,11 @@ export default function MapPage() {
       flow.canvas.remove();
       stationsLayer.canvas.remove();
       radLayer.canvas.remove();
+      smokeLayer.canvas.remove();
       map.remove();
       mapRef.current = null;
     };
-  }, [flow, stationsLayer, radLayer]);
+  }, [flow, stationsLayer, radLayer, smokeLayer]);
 
   // One projection for the wind lines and the station bubbles.
   const view = useMemo<Projection | null>(() => {
@@ -339,12 +403,28 @@ export default function MapPage() {
 
   // Ukraine mode: dim the neighbours, and fly there the first time.
   const flewTo = useRef(false);
+  const moved = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const mark = (e: { originalEvent?: Event }) => {
+      if (e.originalEvent) moved.current = true;
+    };
+    map.on('dragstart', mark);
+    map.on('zoomstart', mark);
+    return () => {
+      map.off('dragstart', mark);
+      map.off('zoomstart', mark);
+    };
+  }, [ready]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !base) return;
     if (map.getLayer('ua-mask')) map.setLayoutProperty('ua-mask', 'visibility', uaMode ? 'visible' : 'none');
     if (uaMode && !flewTo.current) {
       flewTo.current = true;
+      // Nor a place the person has already dragged or zoomed to.
+      if (moved.current) return;
       // Room for the panel on the right; on a phone the panel sits on top, the timeline below.
       const narrow = map.getContainer().clientWidth < 720;
       const padding = narrow ? { top: 190, bottom: 130, left: 16, right: 16 } : { top: 90, bottom: 40, left: 40, right: 320 };
@@ -471,6 +551,33 @@ export default function MapPage() {
     };
   }, [base, uaMode, ua.war, setGeo]);
 
+  // Strikes with fires the satellites saw (the war's fire stories), each with its smoke scene.
+  const warStories = useLoaded(() => loadStories().then((d) => d.stories.filter((s) => WAR_STORIES.includes(s.id)).sort((a, b) => b.start.localeCompare(a.start))), uaMode);
+  useEffect(() => {
+    if (!base) return;
+    if (!uaMode || !ua.strikes || !warStories) return setGeo('strikes', null, () => undefined);
+    setGeo('strikes', strikesGeo(warStories, lang), (map) => {
+      map.addLayer({
+        id: 'strikes-dot',
+        type: 'circle',
+        source: 'strikes',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 7, 9, 11],
+          'circle-color': 'rgba(255,90,60,0.25)',
+          'circle-stroke-color': '#ff5a3c',
+          'circle-stroke-width': 2.5,
+        },
+      });
+      map.addLayer({
+        id: 'strikes-label',
+        type: 'symbol',
+        source: 'strikes',
+        layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-anchor': 'left', 'text-offset': [1.1, 0], 'text-allow-overlap': false },
+        paint: { 'text-color': '#ffd2c8', 'text-halo-color': '#0b0e14', 'text-halo-width': 1.6 },
+      });
+    });
+  }, [base, uaMode, ua.strikes, warStories, lang, setGeo]);
+
   // Fires of the last 48 hours (also used by the station cards).
   const [fires, setFires] = useState<LiveFires | null>(null);
   useEffect(() => {
@@ -485,21 +592,211 @@ export default function MapPage() {
   }, [manifest, uaMode]);
   useEffect(() => {
     if (!base) return;
-    if (!uaMode || !ua.fires || !fires) return setGeo('fires', null, () => undefined);
+    // A smoke scene is about its own days: the fires of now step aside.
+    if (!uaMode || !ua.fires || !fires || scene) return setGeo('fires', null, () => undefined);
     setGeo('fires', firesGeo(fires, manifest?.built ?? new Date().toISOString()), (map) => {
+      addFlameImages(map);
+      // Far out: glowing dots sized by the fire's power; close up: flames, newest brightest.
       map.addLayer({
         id: 'fires-dot',
         type: 'circle',
         source: 'fires',
+        maxzoom: 7.5,
         paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 8, 4.5, 12, 8],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, ['interpolate', ['linear'], ['get', 'frp'], 0, 1.5, 100, 3], 7.5, ['interpolate', ['linear'], ['get', 'frp'], 0, 3.6, 100, 7]],
           'circle-color': ['interpolate', ['linear'], ['get', 'age'], 0, '#fff3b0', 6, '#ff9f1a', 24, '#ff5a1a', 48, '#b3261e'],
-          'circle-stroke-color': 'rgba(4,6,11,0.6)',
-          'circle-stroke-width': 0.6,
+          'circle-opacity': ['interpolate', ['linear'], ['get', 'age'], 0, 1, 48, 0.7],
+          'circle-stroke-color': 'rgba(4,6,11,0.65)',
+          'circle-stroke-width': 0.7,
+          'circle-blur': 0.15,
+        },
+      });
+      map.addLayer({
+        id: 'fires-icon',
+        type: 'symbol',
+        source: 'fires',
+        minzoom: 7.5,
+        layout: {
+          'icon-image': ['step', ['get', 'age'], 'flame-0', 6, 'flame-1', 24, 'flame-2'],
+          'icon-size': ['interpolate', ['linear'], ['get', 'frp'], 0, 0.75, 30, 0.95, 300, 1.3],
+          'icon-anchor': 'bottom',
+          'icon-allow-overlap': true,
+          'symbol-sort-key': ['get', 'frp'],
         },
       });
     });
-  }, [base, uaMode, ua.fires, fires, setGeo, manifest?.built]);
+  }, [base, uaMode, ua.fires, fires, setGeo, manifest?.built, scene]);
+
+  // ---------- cities ----------
+  const placesText = usePlacesText();
+  const smokeText = useSmokeText();
+  const navigate = useNavigate();
+  const cityList = useLoaded(loadCities);
+  const [citiesOn, setCitiesOn] = useState(false);
+  const [cityCard, setCityCard] = useState<CityPlace | null>(null);
+  useEffect(() => {
+    if (!base) return;
+    if (!citiesOn || !cityList) return setGeo('cities', null, () => undefined);
+    setGeo('cities', citiesGeo(cityList, lang), (map) => {
+      // Big cities from far out, smaller ones as you come closer.
+      const shown = ['interpolate', ['linear'], ['zoom'], 2, ['case', ['>=', ['get', 'pop'], 2e6], 1, 0], 3.5, ['case', ['>=', ['get', 'pop'], 7e5], 1, 0], 5, ['case', ['>=', ['get', 'pop'], 2.5e5], 1, 0], 6.5, 1] as unknown as number;
+      map.addLayer({
+        id: 'cities-dot',
+        type: 'circle',
+        source: 'cities',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, ['case', ['>=', ['get', 'pop'], 1e6], 4, 2.5], 8, ['case', ['>=', ['get', 'pop'], 1e6], 7, ['>=', ['get', 'pop'], 3e5], 5.5, 4]],
+          'circle-color': '#ffd9a8',
+          'circle-stroke-color': '#0b0e14',
+          'circle-stroke-width': 1.5,
+          'circle-opacity': shown,
+          'circle-stroke-opacity': shown,
+        },
+      });
+      map.addLayer({
+        id: 'cities-label',
+        type: 'symbol',
+        source: 'cities',
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': ['Noto Sans Bold'],
+          'text-size': ['case', ['>=', ['get', 'pop'], 1e6], 13, 11.5],
+          'text-anchor': 'top',
+          'text-offset': [0, 0.7],
+          'symbol-sort-key': ['-', 0, ['get', 'pop']],
+        },
+        paint: { 'text-color': '#fff1dc', 'text-halo-color': '#0b0e14', 'text-halo-width': 1.6, 'text-opacity': shown },
+      });
+    });
+  }, [base, citiesOn, cityList, lang, setGeo]);
+  const onFound = (p: Found) => {
+    const map = mapRef.current;
+    if (!map) return;
+    // The first flight to Ukraine must not undo a search made before the borders arrived.
+    flewTo.current = true;
+    if (p.kind === 'country') {
+      map.flyTo({ center: [p.lon, p.lat], zoom: p.big ? 3.6 : 5.4, duration: 1200 });
+      return;
+    }
+    map.flyTo({ center: [p.lon, p.lat], zoom: 9.5, duration: 1400 });
+    setCityCard(p.city ? cityPlace(p.city) : { name: p.name, lat: p.lat, lon: p.lon, code: p.code });
+  };
+
+  // ---------- one fire: its card, and where its smoke will go ----------
+  const [fireCard, setFireCard] = useState<{ i: number; x: number; y: number } | null>(null);
+  const fireAt = useCallback(
+    (i: number): FireInfo | null => {
+      if (!fires || i < 0 || i >= fires.count) return null;
+      const since = manifest ? Math.max(0, (Date.now() - Date.parse(manifest.built)) / 3600_000) : 0;
+      const ageH = fires.ageMin[i] / 60 + since;
+      return { lat: fires.lat[i], lon: fires.lon[i], ageH, seen: Date.now() - ageH * 3600_000, frp: fires.frp[i], night: (fires.flags[i] & 1) === 1, high: (fires.flags[i] & 2) === 2 };
+    },
+    [fires, manifest],
+  );
+  const [fireWar, setFireWar] = useState<{ i: number; status: 'occupied' | 'partly' | 'combat' | null } | null>(null);
+  useEffect(() => {
+    const f = fireCard ? fireAt(fireCard.i) : null;
+    if (!f || !fireCard || f.lat < 44 || f.lat > 52.5 || f.lon < 22 || f.lon > 40.3) return;
+    let cancelled = false;
+    void loadWar()
+      .then((d) => !cancelled && setFireWar({ i: fireCard.i, status: warStatusAt(d, f.lat, f.lon) }))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [fireCard, fireAt]);
+  const [smokeFire, setSmokeFire] = useState<{ i: number; status: 'loading' | 'ready' | 'error'; towns: { name: string; h: number }[] } | null>(null);
+  const stopSmoke = useCallback(() => {
+    smoke.close();
+    setSmokeFire(null);
+  }, [smoke]);
+  const startSmoke = useCallback(
+    (i: number) => {
+      const f = fireAt(i);
+      if (!f || !manifest?.weather || !fires) return;
+      smoke.close();
+      setSmokeFire({ i, status: 'loading', towns: [] });
+      // The fire and its neighbours within 8 km burn together.
+      const sources: SmokeSource[] = [];
+      for (let k = 0; k < fires.count && sources.length < 40; k++) {
+        if (Math.abs(fires.lat[k] - f.lat) > 0.08 || Math.abs(fires.lon[k] - f.lon) > 0.12) continue;
+        sources.push({ lat: fires.lat[k], lon: fires.lon[k], t0: 0, t1: 16, power: Math.max(2, fires.frp[k]) });
+      }
+      const map = mapRef.current;
+      if (map && map.getZoom() < 7.5) map.easeTo({ center: [f.lon, f.lat], zoom: 7.5, duration: 900 });
+      setFireCard(null);
+      // A small fire's smoke thins out within hours; a big one's travels for a day.
+      const total = sources.reduce((a, x) => a + x.power, 0);
+      const life = Math.max(3, Math.min(24, 2 + 3 * Math.log2(1 + total / 5)));
+      void forecastWind(manifest, 24)
+        .then((wind) => {
+          const sim = new SmokeSim(sources, wind, { life, diffusion: 1500 });
+          const near = (cityList ?? []).filter((c) => Math.abs(c.lat - f.lat) < 4 && Math.abs(c.lon - f.lon) < 6);
+          const towns = townsInPlume(sim, near, 24)
+            .slice(0, 6)
+            .map((x) => ({ name: x.town[lang], h: Math.max(1, Math.round(x.hours)) }));
+          smokeLayer.set(sim, wind, boxAround(f.lat, f.lon, 45));
+          smokeLayer.setTowns([]);
+          smokeTarget.current.show(smokeLayer, f);
+          setSmokeFire((s) => (s && s.i === i ? { ...s, status: 'ready', towns } : s));
+        })
+        .catch(() => setSmokeFire((s) => (s && s.i === i ? { ...s, status: 'error' } : s)));
+    },
+    [fireAt, manifest, fires, cityList, lang, smokeLayer, smokeTarget, smoke],
+  );
+  // The smoke drifts over the next day again and again, about 8 seconds a day.
+  const [smokeHour, setSmokeHour] = useState(0);
+  const liveSmoke = smokeFire?.status === 'ready';
+  const sceneSmoke = smoke.state?.status === 'ready';
+  useEffect(() => {
+    if ((!liveSmoke && !sceneSmoke) || !view) return;
+    let raf = 0;
+    const t0 = performance.now();
+    let last = -1;
+    const tick = (now: number) => {
+      // The live smoke runs its own day again and again; a scene's clock is its player's.
+      if (liveSmoke) smokeLayer.setTime((((now - t0) / 1000) * 3) % 24);
+      smokeLayer.draw(view, now);
+      const h = Math.floor(smokeLayer.time);
+      if (h !== last) {
+        last = h;
+        setSmokeHour(h);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [liveSmoke, sceneSmoke, view, smokeLayer]);
+  // Hide the smoke and the card when the fires layer goes.
+  useEffect(() => {
+    if (!uaMode || !ua.fires) {
+      setFireCard(null);
+      stopSmoke();
+    }
+  }, [uaMode, ua.fires, stopSmoke]);
+  // A strike's smoke scene: the live smoke and the fire card make room for it.
+  const openStrike = useCallback(
+    (story: FireStory) => {
+      setSmokeFire(null);
+      setFireCard(null);
+      setCityCard(null);
+      smoke.openStory(story, cityList ?? [], lang);
+    },
+    [smoke, cityList, lang],
+  );
+  // What the map's click handler needs, kept current without binding the handler again.
+  const pickRef = useRef<{ cityList: WorldCity[] | null; warStories: FireStory[] | null; onCity: (c: WorldCity) => void; onFire: (i: number, x: number, y: number) => void; onStrike: (s: FireStory) => void }>({
+    cityList,
+    warStories,
+    onCity: (c) => setCityCard(cityPlace(c)),
+    onFire: (i, x, y) => setFireCard({ i, x, y }),
+    onStrike: () => undefined,
+  });
+  useEffect(() => {
+    pickRef.current.cityList = cityList;
+    pickRef.current.warStories = warStories;
+    pickRef.current.onStrike = openStrike;
+  }, [cityList, warStories, openStrike]);
 
   // Background radiation at fixed stations (SaveEcoBot): a tag with the dose rate at each one.
   const [radiation, setRadiation] = useState<RadStation[]>([]);
@@ -520,7 +817,7 @@ export default function MapPage() {
   const radIndex = useMemo(() => (radiation.length ? new PointIndex(radiation.map((x) => x.lat), radiation.map((x) => x.lon)) : null), [radiation]);
   const radData = useMemo<Stations | null>(
     () =>
-      uaMode && ua.radiation && radiation.length
+      uaMode && ua.radiation && radiation.length && !scene
         ? {
             key: `rad|${radiation.length}`,
             lat: radiation.map((x) => x.lat),
@@ -531,7 +828,7 @@ export default function MapPage() {
             old: radiation.map((x) => (isOldRad(x) ? 1 : 0)),
           }
         : null,
-    [uaMode, ua.radiation, radiation, lang],
+    [uaMode, ua.radiation, radiation, lang, scene],
   );
   useEffect(() => {
     radLayer.set(radData);
@@ -570,10 +867,10 @@ export default function MapPage() {
   const air = useMemo<AirStation[]>(() => mergeAir(seb, world, waqi.stations), [waqi.stations, seb, world]);
   const stationData = useMemo<Stations | null>(
     () =>
-      uaMode && ua.aqi && air.length
+      uaMode && ua.aqi && air.length && !scene
         ? { key: `air|${air.length}`, lat: air.map((x) => x.lat), lon: air.map((x) => x.lon), value: air.map((x) => x.aqi), color: air.map((x) => AQI_COLORS[aqiBand(x.aqi)]), old: air.map((x) => (isOld(x) ? 1 : 0)) }
         : null,
-    [uaMode, ua.aqi, air],
+    [uaMode, ua.aqi, air, scene],
   );
   useEffect(() => {
     stationsLayer.set(stationData);
@@ -608,7 +905,8 @@ export default function MapPage() {
         radLayer.hovered = r;
         radLayer.draw(view);
       }
-      map.getCanvas().style.cursor = i >= 0 || r >= 0 ? 'pointer' : '';
+      const over = i < 0 && r < 0 && !!pickAt(map, e.point);
+      map.getCanvas().style.cursor = i >= 0 || r >= 0 || over ? 'pointer' : '';
       setAirCard((c) => (c?.pinned ? c : i >= 0 ? { i, x: e.point.x, y: e.point.y, pinned: false } : null));
       setRadCard((c) => (c?.pinned ? c : r >= 0 ? { i: r, x: e.point.x, y: e.point.y, pinned: false } : null));
       setHover({ x: e.point.x, y: e.point.y, lat: e.lngLat.lat, lon: e.lngLat.wrap().lng });
@@ -626,6 +924,15 @@ export default function MapPage() {
         setRadCard({ i: r, x: e.point.x, y: e.point.y, pinned: true });
         return;
       }
+      const hit = pickAt(map, e.point);
+      if (hit?.layer.id === 'strikes-dot') {
+        const story = pickRef.current.warStories?.find((s) => s.id === hit.properties?.id);
+        if (story) pickRef.current.onStrike(story);
+        return;
+      }
+      if (hit?.layer.id.startsWith('fires')) return pickRef.current.onFire(Number(hit.properties?.i), e.point.x, e.point.y);
+      const list = pickRef.current.cityList;
+      if (hit?.layer.id === 'cities-dot' && list) return pickRef.current.onCity(list[Number(hit.properties?.id)]);
       setPoint({ lat: e.lngLat.lat, lon: e.lngLat.wrap().lng });
     };
     map.on('mousemove', move);
@@ -977,14 +1284,21 @@ export default function MapPage() {
   })();
   const now = manifest ? nearestFrame(manifest) : null;
   const setMode = (next: Mode) => setParams({ mode: next }, { replace: true });
-  const toggle = (k: keyof typeof ua) => setUa((s) => ({ ...s, [k]: !s[k] }));
+  const toggle = (k: keyof typeof ua) =>
+    setUa((s) => {
+      const next = { ...s, [k]: !s[k] };
+      // Air bubbles and radiation tags would cover each other: one of them at a time.
+      if (k === 'radiation' && next.radiation) next.aqi = false;
+      if (k === 'aqi' && next.aqi) next.radiation = false;
+      return next;
+    });
 
   return (
     <main className={`weather-map weather-map--${mode}`}>
       <h1 className="visually-hidden">{uaMode ? m.titleUkraine : w.title}</h1>
       <div ref={host} className="weather-map__map" />
 
-      <TopBar back view="2d" center={<CountrySearch onFound={(c) => mapRef.current?.flyTo({ center: [c.lon, c.lat], zoom: c.big ? 3.6 : 5.4, duration: 1200 })} />} />
+      <TopBar back view="2d" center={<CountrySearch onFound={onFound} />} />
 
       <aside className={`wm-layers${sheet ? ' wm-layers--open' : ''}`} aria-label={uaMode ? m.titleUkraine : w.title}>
         <div className="wm-modes" role="group">
@@ -1005,8 +1319,19 @@ export default function MapPage() {
 
         {uaMode && (
           <div className="wm-ua">
-            <Switch checked={ua.aqi} onChange={() => toggle('aqi')} label={WAQI_TOKEN ? t.ukraine.aqiWaqi : t.ukraine.aqi} />
+            <Switch checked={ua.aqi} onChange={() => toggle('aqi')} label={WAQI_TOKEN ? t.ukraine.aqiWaqi : t.ukraine.aqi} note={t.ukraine.oneOfTwo} />
             <Switch checked={ua.fires} onChange={() => toggle('fires')} label={t.ukraine.fires} />
+            {ua.fires && (
+              <div className="live-legend wm-keys">
+                <span className="live-legend__ramp live-legend__ramp--fires" aria-hidden="true" />
+                <span className="live-legend__ticks">
+                  {t.fires.legend.map((x) => (
+                    <span key={x}>{x}</span>
+                  ))}
+                </span>
+                <p className="note">{smokeText.fireHint}</p>
+              </div>
+            )}
             <Switch checked={ua.front} onChange={() => toggle('front')} label={t.ukraine.front} />
             <button
               type="button"
@@ -1036,7 +1361,19 @@ export default function MapPage() {
               </ul>
             )}
             <Switch checked={ua.war} onChange={() => toggle('war')} label={t.ukraine.war} />
-            <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} />
+            <Switch checked={ua.strikes} onChange={() => toggle('strikes')} label={smokeText.strikes.layer} />
+            {ua.strikes && warStories && (
+              <div className="strike-list">
+                <p className="note">{smokeText.strikes.note}</p>
+                {warStories.map((s) => (
+                  <button key={s.id} type="button" className="hotspot" aria-pressed={smoke.state?.kind === 'story' && smoke.state.story.id === s.id} onClick={() => openStrike(s)}>
+                    <span className="hotspot__name">{s.title[lang]}</span>
+                    <span className="hotspot__meta">{smokeText.strikes.open}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} note={t.ukraine.oneOfTwo} />
             <div className="wm-sep" />
             {manifest?.airq && (
               <Switch
@@ -1055,6 +1392,7 @@ export default function MapPage() {
           </div>
         )}
 
+        <Switch checked={citiesOn} onChange={setCitiesOn} label={placesText.layer} />
         {weather && (
           <div className="wm-weather">
             {LAYERS.map((l) => (
@@ -1093,6 +1431,88 @@ export default function MapPage() {
         </p>
       )}
 
+      {fireCard && fireAt(fireCard.i) && (
+        <FireCard
+          fire={fireAt(fireCard.i)!}
+          x={fireCard.x}
+          y={fireCard.y}
+          town={(() => {
+            const f = fireAt(fireCard.i)!;
+            const near = cityList ? nearestCity(cityList, f.lat, f.lon, 80) : null;
+            return near ? { name: near.city[lang], km: near.km } : null;
+          })()}
+          war={fireWar?.i === fireCard.i ? fireWar.status : null}
+          smokeOn={smokeFire?.i === fireCard.i}
+          onSmoke={() => (smokeFire?.i === fireCard.i ? stopSmoke() : startSmoke(fireCard.i))}
+          onClose={() => setFireCard(null)}
+        />
+      )}
+      {smokeFire && (
+        <section className="smoke-live" aria-label={smokeText.live.title}>
+          <header>
+            <h2>{smokeText.live.title}</h2>
+            <button type="button" className="icon-btn icon-btn--bare" aria-label={smokeText.close} onClick={stopSmoke}>
+              <Icon name="close" size={18} />
+            </button>
+          </header>
+          {smokeFire.status === 'loading' && <p className="note">{smokeText.loading}</p>}
+          {smokeFire.status === 'error' && <p className="note">{smokeText.error}</p>}
+          {smokeFire.status === 'ready' && (
+            <>
+              <p className="smoke-live__clock">{smokeText.live.hours(smokeHour)}</p>
+              {smokeFire.towns.length ? (
+                <>
+                  <p className="smoke-live__sub">{smokeText.live.towns}</p>
+                  <ul>
+                    {smokeFire.towns.map((x) => (
+                      <li key={x.name}>
+                        <b>{x.name}</b> — {smokeText.live.hours(x.h)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="note">{smokeText.live.noTowns}</p>
+              )}
+              <details>
+                <summary>{smokeText.sections.todo}</summary>
+                <ul>
+                  {smokeText.todo.wild.slice(0, 3).map((x) => (
+                    <li key={x}>{x}</li>
+                  ))}
+                </ul>
+              </details>
+            </>
+          )}
+          <p className="legend__src">{smokeText.live.note}</p>
+        </section>
+      )}
+      {cityCard && (
+        <CityCard
+          place={cityCard}
+          manifest={manifest}
+          onCompare={(slot) => {
+            const r = cityRegion(cityCard);
+            navigate(`/explore?${slot === 'A' ? 'a' : 'bb'}=p:${r.lat.toFixed(3)},${r.lon.toFixed(3)},${r.radiusKm}`);
+          }}
+          onWeather={() => {
+            setPoint({ lat: cityCard.lat, lon: cityCard.lon });
+            setCityCard(null);
+          }}
+          onClose={() => setCityCard(null)}
+        />
+      )}
+      {smoke.state?.kind === 'story' && (
+        <SmokePlayer
+          key={`${smoke.state.scene.storyId}|${smoke.state.status}`}
+          scene={smoke.state.scene}
+          story={smoke.state.story}
+          status={smoke.state.status}
+          towns={smoke.state.towns}
+          onTime={(h) => smokeLayer.setTime(h)}
+          onClose={smoke.close}
+        />
+      )}
       {radCard && !airCard && radiation[radCard.i] && <RadCard station={radiation[radCard.i]} x={radCard.x} y={radCard.y} pinned={radCard.pinned} onClose={() => setRadCard(null)} />}
       {airCard && air[airCard.i] && <AirCard station={air[airCard.i]} x={airCard.x} y={airCard.y} pinned={airCard.pinned} frame={frame} fires={fires} onClose={() => setAirCard(null)} />}
 

@@ -31,7 +31,12 @@ const GROUPS: { id: 'nasa' | 'weather' | 'ukraine' | 'maps'; items: Item[] }[] =
     items: [
       { name: 'DeepState', what: { uk: 'Карта фронту та її історія', en: 'Front-line map and its history' }, url: 'https://deepstatemap.live/' },
       { name: 'SaveEcoBot', what: { uk: 'Якість повітря й радіаційний фон зі станцій в Україні', en: 'Air quality and background radiation from stations in Ukraine' }, url: 'https://www.saveecobot.com/' },
-      { name: 'Sensor.Community', what: { uk: 'Відкриті громадські датчики пилу по всьому світу', en: 'Open citizen dust sensors worldwide' }, url: 'https://sensor.community/' },
+      { name: 'Sensor.Community', what: { uk: 'Відкриті громадські датчики пилу й лічильники радіації по всьому світу (ODbL)', en: 'Open citizen dust sensors and radiation counters worldwide (ODbL)' }, url: 'https://sensor.community/' },
+      { name: 'BfS ODL-Info', what: { uk: 'Радіаційний фон на ~1700 станціях Німеччини (dl-de/by-2-0)', en: 'Background radiation at ~1700 stations in Germany (dl-de/by-2-0)' }, url: 'https://odlinfo.bfs.de/' },
+      { name: 'STUK (Finnish Meteorological Institute open data)', what: { uk: 'Радіаційний фон на станціях Фінляндії (CC BY 4.0)', en: 'Background radiation at stations in Finland (CC BY 4.0)' }, url: 'https://en.ilmatieteenlaitos.fi/open-data' },
+      { name: 'Safecast', what: { uk: 'Волонтерські лічильники радіації: Японія, США та інші країни (CC0)', en: "Volunteers' radiation counters: Japan, the US and other countries (CC0)" }, url: 'https://safecast.org/' },
+      { name: 'ERA5 (Copernicus, через Open-Meteo)', what: { uk: 'Вітер минулих днів для сцен «Дим і вітер»', en: 'Wind of past days for the Smoke and wind scenes' }, url: 'https://open-meteo.com/en/docs/historical-weather-api' },
+      { name: 'OpenStreetMap (Overpass API)', what: { uk: 'Промзони й заводи для порівняння міст', en: 'Industrial areas and factories for comparing cities' }, url: 'https://overpass-api.de/' },
       { name: 'World Air Quality Index (WAQI)', what: { uk: 'Якість повітря з офіційних станцій світу, щогодини', en: 'Air quality from official stations worldwide, hourly' }, url: 'https://waqi.info/' },
       { name: 'Copernicus CAMS (Open-Meteo)', what: { uk: 'Модель якості повітря: прогноз на 3 дні, шари AQI, PM2.5 і пилу (CC BY 4.0)', en: 'Air quality model: 3-day forecast, AQI, PM2.5 and dust layers (CC BY 4.0)' }, url: 'https://open-meteo.com/en/docs/air-quality-api' },
       { name: 'Мінрозвитку України', what: { uk: 'Перелік окупованих громад (наказ № 376)', en: 'List of occupied communities (Order No. 376)' }, url: 'https://zakon.rada.gov.ua/laws/show/z0380-25' },
@@ -47,7 +52,7 @@ const GROUPS: { id: 'nasa' | 'weather' | 'ukraine' | 'maps'; items: Item[] }[] =
     id: 'maps',
     items: [
       { name: 'OpenStreetMap', what: { uk: 'Основа 2D-карти, © учасники OpenStreetMap (ODbL)', en: 'Base of the 2D map, © OpenStreetMap contributors (ODbL)' }, url: 'https://www.openstreetmap.org/copyright' },
-      { name: 'Natural Earth', what: { uk: 'Кордони, столиці, моря й річки', en: 'Borders, capitals, seas and rivers' }, url: 'https://www.naturalearthdata.com/' },
+      { name: 'Natural Earth', what: { uk: 'Кордони, столиці, моря, річки й міста з населенням', en: 'Borders, capitals, seas, rivers and cities with their population' }, url: 'https://www.naturalearthdata.com/' },
       { name: 'Wikimedia Commons', what: { uk: 'Фото подій і розділу про війну (автори й ліцензії — біля кожного фото)', en: 'Photos of events and of the war section (authors and licences by each photo)' }, url: 'https://commons.wikimedia.org/' },
       { name: 'YouTube', what: { uk: 'Відео МАГАТЕ, ЄБРР, EPRS, AP, UATV (вантажаться лише після натискання, без cookie)', en: 'Videos by the IAEA, EBRD, EPRS, AP, UATV (load only when played, without cookies)' }, url: 'https://www.youtube.com/' },
       { name: 'OpenStreetMap Nominatim', what: { uk: 'Назви районів і міст за координатами', en: 'District and town names from coordinates' }, url: 'https://nominatim.org/' },

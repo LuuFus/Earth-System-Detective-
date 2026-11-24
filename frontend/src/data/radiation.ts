@@ -1,8 +1,14 @@
-// Background radiation at fixed stations: the gamma dose rate that SaveEcoBot gathers for its
-// radiation map of Ukraine (hundreds of stations, updated every few minutes). Each station is a
+// Background radiation at fixed stations around the world. Ukraine: the gamma dose rate that
+// SaveEcoBot gathers for its radiation map (hundreds of stations, read here every five minutes).
+// Elsewhere: the hourly file from data-pipeline/build_live.py, with official networks (Germany's
+// BfS, Finland's STUK) and volunteers' counters (Safecast, Sensor.Community). Each station is a
 // point with its own reading, unlike a map of measured roads.
 
+import { loadManifest } from './live';
 import { PointIndex } from './nearby';
+
+/** Which network a station belongs to. */
+export type RadSource = 'saveecobot' | 'bfs' | 'stuk' | 'safecast' | 'sensor';
 
 export type RadStation = {
   lat: number;
@@ -11,7 +17,19 @@ export type RadStation = {
   usv: number;
   /** When it was measured (ISO). */
   time: string;
+  /** Missing means SaveEcoBot. */
+  src?: RadSource;
 };
+
+/** The networks: name, link, and whether the counters are volunteers' (home Geiger counters). */
+export const RAD_SOURCES: Record<RadSource, { name: string; url: string; volunteer: boolean }> = {
+  saveecobot: { name: 'SaveEcoBot', url: 'https://www.saveecobot.com/radiation-maps', volunteer: false },
+  bfs: { name: 'BfS ODL', url: 'https://odlinfo.bfs.de/', volunteer: false },
+  stuk: { name: 'STUK', url: 'https://www.stuk.fi/', volunteer: false },
+  safecast: { name: 'Safecast', url: 'https://safecast.org/', volunteer: true },
+  sensor: { name: 'Sensor.Community', url: 'https://sensor.community/', volunteer: true },
+};
+const WORLD_IDS: RadSource[] = ['bfs', 'stuk', 'safecast', 'sensor'];
 
 /** The data behind SaveEcoBot's public radiation map (CORS open). */
 export const RAD_URL = 'https://www.saveecobot.com/storage/maps_data.js';
@@ -25,15 +43,50 @@ type Device = { a: string; n: string; gamma?: number; gamma_t?: number };
 
 let cache: { at: number; promise: Promise<RadStation[]> } | null = null;
 
-/** Stations with a gamma reading from the last day; fetched again after five minutes. */
+/** The stations around the world from the hourly file, or none if it is missing. */
+async function loadWorld(): Promise<RadStation[]> {
+  const manifest = await loadManifest();
+  const file = manifest.radiation?.file;
+  if (!file) return [];
+  const r = await fetch(`${import.meta.env.BASE_URL}data/live/${file}?v=${encodeURIComponent(manifest.built)}`);
+  if (!r.ok) throw new Error(`radiation ${r.status}`);
+  return parseWorld((await r.json()) as WorldFile, Date.now());
+}
+
+export type WorldFile = { built: string; p: [number, number, number, number, number][] };
+
+/** Points of the hourly file: [lat, lon, µSv/h, minutes old at the build, network]. */
+export function parseWorld(d: WorldFile, now: number): RadStation[] {
+  const built = Date.parse(d.built);
+  const out: RadStation[] = [];
+  for (const [lat, lon, usv, age, k] of d.p) {
+    const t = built - age * 60_000;
+    if (now - t > MAX_HOURS * 2 * 3600_000 || !(usv > 0)) continue;
+    out.push({ lat, lon, usv, time: new Date(t).toISOString(), src: WORLD_IDS[k] ?? 'safecast' });
+  }
+  return out;
+}
+
+/** World stations, without those that repeat a SaveEcoBot station (the same counter in two networks). */
+export function mergeRadiation(ukraine: RadStation[], world: RadStation[]): RadStation[] {
+  const cell = (lat: number, lon: number) => `${Math.round(lat * 200)},${Math.round(lon * 200)}`;
+  const taken = new Set(ukraine.map((s) => cell(s.lat, s.lon)));
+  return [...ukraine, ...world.filter((s) => !taken.has(cell(s.lat, s.lon)))];
+}
+
+/** Stations with a recent gamma reading, Ukraine and the world; fetched again after five minutes. */
 export function loadRadiation(): Promise<RadStation[]> {
   if (cache && Date.now() - cache.at < 5 * 60_000) return cache.promise;
-  const promise = fetch(RAD_URL)
+  const ukraine = fetch(RAD_URL)
     .then((r) => {
       if (!r.ok) throw new Error(`radiation ${r.status}`);
       return r.json() as Promise<{ devices: Device[] }>;
     })
     .then((d) => parseRadiation(d.devices, Date.now()));
+  const promise = Promise.allSettled([ukraine, loadWorld()]).then(([a, b]) => {
+    if (a.status === 'rejected' && b.status === 'rejected') throw a.reason;
+    return mergeRadiation(a.status === 'fulfilled' ? a.value : [], b.status === 'fulfilled' ? b.value : []);
+  });
   cache = { at: Date.now(), promise };
   promise.catch(() => (cache = null));
   return promise;

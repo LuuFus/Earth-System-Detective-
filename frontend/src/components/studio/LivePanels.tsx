@@ -7,11 +7,15 @@ import { ago, SCALES, type FieldKind, type LiveManifest } from '../../data/live'
 import { RAD_COLORS, RAD_MAP } from '../../data/radiation';
 import { WAQI_TOKEN } from '../../data/waqi';
 import { AQI_COLORS, aqiBand, DEEPSTATE, type AqiStation, type FireStory, type FrontVersion } from '../../data/ukraine';
+import { dayChange, type Hotspot } from '../../data/hotspots';
+import { variableById } from '../../data/variables';
 import type { WarData } from '../../data/war';
 import { useI18n } from '../../i18n/I18n';
+import { useClock } from '../../hooks/useClock';
 import { useLiveText } from '../../i18n/live';
+import { useSmokeText } from '../../i18n/smoke';
 import type { Light, WeatherField } from '../../state/explore';
-import { JellySlider } from '../ui/JellySlider';
+import { ClockRow } from './ClockRow';
 import { Icon } from './Icon';
 import { WarLegend } from './Panels';
 
@@ -54,6 +58,11 @@ function Bars({ values, active, label }: { values: number[]; active?: number; la
 // ---------- Fires ----------
 
 type FiresProps = {
+  /** The archive day on the globe (the Fires layer), or null when that layer is off. */
+  archiveDay: string | null;
+  onArchiveDay: (date: string) => void;
+  /** The comparison shutter is open: the live fires are hidden. */
+  comparing: boolean;
   liveFires: boolean;
   onLiveFires: (on: boolean) => void;
   manifest: LiveManifest | null;
@@ -63,6 +72,9 @@ type FiresProps = {
   storyId: string | null;
   onStory: (story: FireStory) => void;
   onUkraine: () => void;
+  /** Where most fire burns now, with the forecast for each. */
+  hotspots: { h: Hotspot; name: string }[] | null;
+  onHotspot: (h: Hotspot, name: string) => void;
 };
 
 export function FiresPanel(p: FiresProps) {
@@ -71,11 +83,69 @@ export function FiresPanel(p: FiresProps) {
   const nf = new Intl.NumberFormat(lang === 'uk' ? 'uk-UA' : 'en-GB');
   const fires = p.manifest?.fires;
   const ua = fires?.ukraine ?? [];
+  const two = t.fires.two;
+  const hot = useSmokeText().hotspots;
+  const img = variableById.fires.imagery!;
+  const step = (days: number) => {
+    const d = new Date(Date.parse(`${p.archiveDay}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+    if (d >= img.first && d <= img.last) p.onArchiveDay(d);
+  };
+  const sats = p.archiveDay ? (img.satellites ?? []).filter((x) => p.archiveDay! >= x.first) : [];
   return (
     <>
+      <section className="panel-sec fire-two">
+        <h3 className="panel-sec__title">{two.title}</h3>
+        <dl className="fire-two__list">
+          <div className="fire-two__item">
+            <dt>
+              <span className="fire-key fire-key--archive" aria-hidden="true" />
+              {two.archive}
+            </dt>
+            <dd>{two.archiveText}</dd>
+          </div>
+          <div className="fire-two__item">
+            <dt>
+              <span className="fire-key fire-key--live" aria-hidden="true" />
+              {two.live}
+            </dt>
+            <dd>{two.liveText}</dd>
+          </div>
+        </dl>
+        {p.archiveDay ? (
+          <div className="fire-day" role="group" aria-label={two.day}>
+            <button type="button" className="icon-btn" aria-label={two.prev} disabled={p.archiveDay <= img.first} onClick={() => step(-1)}>
+              ‹
+            </button>
+            <span className="fire-day__date">
+              <span>{two.day}</span>
+              <strong>{dateText(p.archiveDay, lang)}</strong>
+            </span>
+            <button type="button" className="icon-btn" aria-label={two.next} disabled={p.archiveDay >= img.last} onClick={() => step(1)}>
+              ›
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="chip-btn" onClick={() => p.onArchiveDay(img.last)}>
+            <Icon name="fire" size={16} />
+            {two.show}
+          </button>
+        )}
+        {p.archiveDay && (
+          <p className="note">
+            {two.sats(sats.map((x) => x.name).join(', '))} {p.archiveDay >= '2025-01-01' && two.snpp}
+          </p>
+        )}
+        {p.comparing && <p className="note note--warn">{two.compare}</p>}
+      </section>
+
       <section className="panel-sec">
         <h3 className="panel-sec__title">{t.fires.now}</h3>
-        <Switch checked={p.liveFires} onChange={p.onLiveFires} label={t.fires.live} note={fires ? t.updated(ago(p.manifest!.built, lang)) : undefined} />
+        <Switch
+          checked={p.liveFires}
+          onChange={p.onLiveFires}
+          label={t.fires.live}
+          note={p.comparing && p.liveFires ? t.fires.liveHidden : fires ? t.updated(ago(p.manifest!.built, lang)) : undefined}
+        />
         {!fires && p.manifestError && <p className="note">{t.noLive}</p>}
         {p.liveFires && fires && (
           <div className="live-legend">
@@ -106,6 +176,29 @@ export function FiresPanel(p: FiresProps) {
         )}
       </section>
 
+      {p.hotspots && p.hotspots.length > 0 && (
+        <section className="panel-sec">
+          <h3 className="panel-sec__title">{hot.kicker}</h3>
+          <p className="note">{hot.listNote}</p>
+          <div className="hotspot-list">
+            {p.hotspots.map(({ h, name }) => {
+              const change = dayChange(h);
+              return (
+                <button key={h.id} type="button" className="hotspot" onClick={() => p.onHotspot(h, name)}>
+                  <span className="hotspot__name">{name}</span>
+                  <span className="hotspot__meta">
+                    {hot.count(nf.format(h.lastDay))}
+                    {change !== null && <b className={change > 0 ? 'hotspot__up' : 'hotspot__down'}> {change > 0 ? '▲' : '▼'} {Math.abs(change)}%</b>}
+                    {' · '}
+                    {nf.format(h.power)} {lang === 'uk' ? 'МВт' : 'MW'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="panel-sec">
         <h3 className="panel-sec__title">{t.fires.stories}</h3>
         <p className="note">{t.fires.storiesNote}</p>
@@ -133,60 +226,26 @@ export function FiresPanel(p: FiresProps) {
 
 type PlayerProps = {
   story: FireStory;
+  /** Opens the story's smoke scene, when it has one. */
+  onSmoke?: () => void;
   /** Called every frame with the story clock, in hours since its start. */
   onTime: (hours: number) => void;
   onClose: () => void;
 };
 
 /** Plays a fire story: about 25 seconds for the whole story at 1x, whatever its length. */
-export function StoryPlayer({ story, onTime, onClose }: PlayerProps) {
+export function StoryPlayer({ story, onTime, onClose, onSmoke }: PlayerProps) {
+  const smokeText = useSmokeText();
   const { lang } = useI18n();
   const t = useLiveText();
-  const [hours, setHours] = useState(0);
-  const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState<1 | 2 | 4>(1);
-  const end = story.days * 24;
-  const clock = useRef(0);
-  const timeCb = useRef(onTime);
-  timeCb.current = onTime;
-  useEffect(() => {
-    clock.current = 0;
-    setHours(0);
-    setPlaying(true);
-    timeCb.current(0);
-  }, [story.id]);
-  useEffect(() => {
-    if (!playing) return;
-    let raf = 0;
-    let last = performance.now();
-    const rate = 24 * Math.max(1, story.days / 24) * speed; // story hours per second
-    const tick = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
-      clock.current = Math.min(end, clock.current + dt * rate);
-      timeCb.current(clock.current);
-      setHours(clock.current);
-      if (clock.current >= end) {
-        setPlaying(false);
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, speed, story.days, end]);
-  const onHours = (h: number) => {
-    clock.current = h;
-    setHours(h);
-    timeCb.current(h);
-  };
-  const onPlay = (on: boolean) => {
-    if (on && clock.current >= end) onHours(0);
-    setPlaying(on);
-  };
-  const day = Math.min(story.days - 1, Math.floor(hours / 24));
+  const end = (story.days - 1) * 24 + 23;
+  // About 25 seconds for the whole story at 1x, whatever its length (the page keys it by story).
+  const clock = useClock(end, 24 * Math.max(1, story.days / 24), onTime, { autoplay: true });
+  const day = Math.min(story.days - 1, Math.floor(clock.hours / 24));
   const start = Date.parse(`${story.start}T00:00:00Z`);
-  const fmt = (h: number) => new Intl.DateTimeFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(start + h * 3600_000));
+  const locale = lang === 'uk' ? 'uk-UA' : 'en-GB';
+  const fmt = (h: number) => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(start + h * 3600_000));
+  const tick = (h: number) => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(new Date(start + h * 3600_000));
   const months = new Set<number>();
   const majors: number[] = [];
   for (let d = 0; d < story.days; d++) {
@@ -209,33 +268,28 @@ export function StoryPlayer({ story, onTime, onClose }: PlayerProps) {
           <Icon name="close" size={18} />
         </button>
       </header>
+      {onSmoke && (
+        <button type="button" className="smoke-open" onClick={onSmoke}>
+          <strong>
+            <Icon name="wind" size={16} />
+            {smokeText.open}
+          </strong>
+          <span>{smokeText.openNote}</span>
+        </button>
+      )}
       <div className="story-player__bars">
         <Bars values={story.perDay} active={day} label={t.fires.perDay(story.perDay[day] ?? 0)} />
       </div>
-      <div className="story-player__row">
-        <button type="button" className="play-btn" aria-label={playing ? t.pause : t.play} onClick={() => onPlay(!playing)}>
-          <Icon name={playing ? 'pause' : 'play'} />
-        </button>
-        <button type="button" className="speed-btn" aria-label={`${t.fires.speed}: ${speed}×`} onClick={() => setSpeed(speed === 1 ? 2 : speed === 2 ? 4 : 1)}>
-          {speed}×
-        </button>
-        <JellySlider
-          className="story-player__slider"
-          min={0}
-          max={(story.days - 1) * 24 + 23}
-          step={1}
-          value={Math.round(hours)}
-          onChange={onHours}
-          label={t.fires.day(day + 1, story.days)}
-          format={fmt}
-          formatTick={(h) => new Intl.DateTimeFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { day: 'numeric', month: 'short' }).format(new Date(start + h * 3600_000))}
-          majors={majors}
-        />
-        <div className="story-player__date">
-          <strong>{fmt(hours)}</strong>
-          <span>{t.fires.day(day + 1, story.days)}</span>
-        </div>
-      </div>
+      <ClockRow
+        className="story-player"
+        clock={clock}
+        length={end}
+        format={fmt}
+        formatTick={tick}
+        majors={majors}
+        sub={t.fires.day(day + 1, story.days)}
+        labels={{ play: t.play, pause: t.pause, speed: t.fires.speed }}
+      />
       <div className="story-player__legend" aria-hidden="true">
         {t.fires.legendStory.map((x, i) => (
           <span key={x} className={`story-key story-key--${i}`}>
@@ -328,7 +382,7 @@ export function UkrainePanel(p: UkraineProps) {
       </div>
 
       <section className="panel-sec">
-        <Switch checked={p.aqi} onChange={p.onAqi} label={WAQI_TOKEN ? u.aqiWaqi : u.aqi} />
+        <Switch checked={p.aqi} onChange={p.onAqi} label={WAQI_TOKEN ? u.aqiWaqi : u.aqi} note={u.oneOfTwo} />
         {p.aqi && (
           <div className="sub">
             <ul className="aqi-keys">
@@ -348,7 +402,7 @@ export function UkrainePanel(p: UkraineProps) {
       </section>
 
       <section className="panel-sec">
-        <Switch checked={p.radiation} onChange={p.onRadiation} label={u.radiation} />
+        <Switch checked={p.radiation} onChange={p.onRadiation} label={u.radiation} note={u.oneOfTwo} />
         {p.radiation && (
           <div className="sub">
             <RadiationLegend />
@@ -437,65 +491,6 @@ export function RadiationLegend() {
 }
 
 // ---------- Air-quality station card ----------
-
-export function StationCard({ station, onClose }: { station: AqiStation; onClose: () => void }) {
-  const { lang } = useI18n();
-  const t = useLiveText();
-  const band = aqiBand(station.aqi);
-  const f1 = new Intl.NumberFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { maximumFractionDigits: 1 });
-  return (
-    <section className="station-card" aria-label={`${station.city}, ${station.name}`}>
-      <header className="station-card__head">
-        <div>
-          <p className="station-card__city">{station.city}</p>
-          <h2 className="station-card__name">{station.name}</h2>
-        </div>
-        <button type="button" className="icon-btn icon-btn--bare" aria-label={t.close} onClick={onClose}>
-          <Icon name="close" size={18} />
-        </button>
-      </header>
-      <div className="station-card__aqi" style={{ ['--aqi' as string]: hex(AQI_COLORS[band]) }}>
-        <strong>{station.aqi}</strong>
-        <span>
-          {t.ukraine.station.aqi} · {t.ukraine.aqiBands[band]}
-        </span>
-      </div>
-      <dl className="station-card__rows">
-        {station.pm25 !== null && (
-          <div>
-            <dt>{t.ukraine.station.pm25}</dt>
-            <dd>{f1.format(station.pm25)} µg/m³</dd>
-          </div>
-        )}
-        {station.pm10 !== null && (
-          <div>
-            <dt>{t.ukraine.station.pm10}</dt>
-            <dd>{f1.format(station.pm10)} µg/m³</dd>
-          </div>
-        )}
-        {station.temp !== null && (
-          <div>
-            <dt>{t.ukraine.station.temp}</dt>
-            <dd>{f1.format(station.temp)} °C</dd>
-          </div>
-        )}
-        {station.humidity !== null && (
-          <div>
-            <dt>{t.ukraine.station.humidity}</dt>
-            <dd>{f1.format(station.humidity)}%</dd>
-          </div>
-        )}
-        <div>
-          <dt>{t.ukraine.station.measured}</dt>
-          <dd>{ago(station.time, lang)}</dd>
-        </div>
-      </dl>
-      <a className="text-link" href="https://www.saveecobot.com/maps" target="_blank" rel="noreferrer">
-        SaveEcoBot ↗
-      </a>
-    </section>
-  );
-}
 
 // ---------- Weather on the globe ----------
 

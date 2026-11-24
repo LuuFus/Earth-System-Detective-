@@ -17,9 +17,14 @@ export type Imagery = {
   /** Month (1-12) and day used when the timeline moves year by year. */
   month: number;
   day?: number;
-  via?: 'wmts' | 'wms';
+  via?: 'wmts' | 'wms' | 'mvt';
   /** Point detections (fires): drawn in one colour with a legend of our own. */
   points?: boolean;
+  /**
+   * Vector-tile point layers (`via: 'mvt'`): every satellite's layer of the day is drawn together,
+   * each from the first day it has data. `layer` is the oldest, used for the thumbnail.
+   */
+  satellites?: { layer: string; first: string; name: string }[];
   /**
    * Daily swath imagery with black gaps between orbits: the gaps are filled from another
    * satellite's image of the same day, the first entry whose `first` date has been reached.
@@ -104,6 +109,11 @@ export type VariableId =
   | 'wind10'
   | 'landcover'
   | 'population';
+
+/** A day so many days before today (UTC), YYYY-MM-DD. */
+export function daysAgo(days: number, now = Date.now()): string {
+  return new Date(now - days * 86_400_000).toISOString().slice(0, 10);
+}
 
 const POWER_URL = 'https://power.larc.nasa.gov/';
 const POWER_YEARS: [number, number] = [1981, 2025];
@@ -398,11 +408,18 @@ export const variables: Variable[] = [
       format: 'image/png',
       time: 'daily',
       first: '2012-01-20',
-      last: '2026-11-02',
+      // Near real time: yesterday is complete.
+      last: daysAgo(1),
       month: 8,
       day: 1,
-      via: 'wms',
+      via: 'mvt',
       points: true,
+      // Suomi NPP stopped sending fires in 2026; NOAA-20 and NOAA-21 carry the same instrument.
+      satellites: [
+        { layer: 'VIIRS_SNPP_Thermal_Anomalies_375m_All', first: '2012-01-20', name: 'Suomi NPP' },
+        { layer: 'VIIRS_NOAA20_Thermal_Anomalies_375m_All', first: '2020-01-01', name: 'NOAA-20' },
+        { layer: 'VIIRS_NOAA21_Thermal_Anomalies_375m_All', first: '2024-01-17', name: 'NOAA-21' },
+      ],
     },
     series: { kind: 'grid', file: 'fires/ukraine', unit: 1, combine: 'sum', coverage: { uk: 'Пожежі пораховано лише в межах України (архів NASA FIRMS по країнах).', en: 'Fires are counted inside Ukraine only (NASA FIRMS country archive).' } },
     years: [2012, 2025],

@@ -7,6 +7,7 @@ import { GLOSSARY_GROUPS, glossary, type GlossaryGroup, type Term } from '../../
 import type { WarData } from '../../data/war';
 import { groups, imageryDate, variableById, variables, type VariableId } from '../../data/variables';
 import { RANGE } from '../../hooks/useClimateLayer';
+import { usePlacesText } from '../../i18n/places';
 import { useI18n } from '../../i18n/I18n';
 import { numberFormat } from '../../i18n/format';
 import { useStudio } from '../../i18n/useStudio';
@@ -156,11 +157,15 @@ type LayersProps = {
   onBorders: (on: boolean) => void;
   onLabels: (labels: Partial<LabelLayers>) => void;
   onWar: (on: boolean) => void;
+  /** The Cities layer. */
+  cities: boolean;
+  onCities: (on: boolean) => void;
 };
 
 export function LayersPanel(p: LayersProps) {
   const { lang } = useI18n();
   const s = useStudio();
+  const places = usePlacesText();
   const v = p.variable ? variableById[p.variable] : null;
 
   return (
@@ -179,6 +184,12 @@ export function LayersPanel(p: LayersProps) {
               <span>{s.layers[k]}</span>
             </label>
           ))}
+          <label className="check" title={places.layerNote}>
+            <input type="checkbox" checked={p.cities} onChange={(e) => p.onCities(e.target.checked)} />
+            <span className="check__swatch check__swatch--cities" aria-hidden="true" />
+            <span>{places.layer}</span>
+          </label>
+          {p.cities && <p className="note">{places.layerNote}</p>}
           <p className="legend__src">
             <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">
               {s.layers.geoSource}

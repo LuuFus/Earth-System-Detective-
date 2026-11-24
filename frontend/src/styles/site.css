@@ -118,7 +118,7 @@ p {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--color-fire);
+  background: var(--color-fire-archive, #ff5a3c);
 }
 
 .legend__global {
@@ -1150,6 +1150,14 @@ p {
 .check__swatch--rivers {
   height: 2px;
   background: var(--color-river);
+}
+
+.check__swatch--cities {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffd9a8;
+  box-shadow: 0 0 0 1.5px var(--color-void);
 }
 
 /* ---------- Chart: zoom, navigator, full screen ---------- */

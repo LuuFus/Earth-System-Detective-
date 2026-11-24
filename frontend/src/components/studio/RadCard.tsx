@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { placeName } from '../../data/air';
 import { ago } from '../../data/live';
-import { RAD_COLORS, RAD_MAP, radBand, radLabel, yearlyMsv, type RadStation } from '../../data/radiation';
+import { RAD_COLORS, RAD_SOURCES, radBand, radLabel, yearlyMsv, type RadStation } from '../../data/radiation';
 import { useI18n } from '../../i18n/I18n';
 import { useLiveText } from '../../i18n/live';
 import { Icon } from './Icon';
@@ -36,6 +36,7 @@ export function RadCard({ station, x, y, pinned, onClose }: Props) {
   }, [key, station.lat, station.lon, lang, pinned]);
 
   const band = radBand(station.usv);
+  const net = RAD_SOURCES[station.src ?? 'saveecobot'];
   const nf1 = new Intl.NumberFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
   const nf0 = new Intl.NumberFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { maximumFractionDigits: 0 });
   const w = pinned ? 340 : 320;
@@ -46,7 +47,7 @@ export function RadCard({ station, x, y, pinned, onClose }: Props) {
     <section className={`air-card${pinned ? ' air-card--pinned' : ''}`} style={{ left, top, width: w, maxHeight: window.innerHeight - top - 12 }} aria-label={place ?? t.station}>
       <header className="air-card__head">
         <div>
-          <p className="air-card__kind">{t.kind}</p>
+          <p className="air-card__kind">{t.kind(net.name, net.volunteer)}</p>
           <h2 className="air-card__title">{place ?? t.station}</h2>
         </div>
         {pinned && (
@@ -63,6 +64,7 @@ export function RadCard({ station, x, y, pinned, onClose }: Props) {
         </span>
       </div>
       <p className="air-card__meaning">{t.meaning[band]}</p>
+      {net.volunteer && <p className="air-card__fine">{t.volunteer}</p>}
       <div className="air-card__advice">
         <p className="air-card__why-title">{t.doTitle}</p>
         <ul className="air-card__list air-card__list--do">
@@ -86,8 +88,8 @@ export function RadCard({ station, x, y, pinned, onClose }: Props) {
           <p className="air-card__fine">{t.compare}</p>
           <p className="air-card__fine">
             {t.disclaimer}{' '}
-            <a href={RAD_MAP} target="_blank" rel="noreferrer">
-              SaveEcoBot ↗
+            <a href={net.url} target="_blank" rel="noreferrer">
+              {net.name} ↗
             </a>
           </p>
         </>

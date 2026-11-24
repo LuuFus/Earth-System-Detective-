@@ -11,7 +11,8 @@ import type { Point } from './stats';
 export type Box = { s: number; w: number; n: number; e: number };
 
 export type Region =
-  | { kind: 'point'; lat: number; lon: number; radiusKm: number; name?: Text }
+  /** `city`: a city of the Cities layer (population and built-up area, Natural Earth). */
+  | { kind: 'point'; lat: number; lon: number; radiusKm: number; name?: Text; city?: { pop: number; areaKm2: number; code: string } }
   | { kind: 'box'; s: number; w: number; n: number; e: number; name: Text }
   /** A whole country inside its borders (Natural Earth). lat/lon: where its name goes. */
   | { kind: 'country'; code: string; lat: number; lon: number; box: Box; name?: Text };

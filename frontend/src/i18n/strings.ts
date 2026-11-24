@@ -26,10 +26,10 @@ const uk = {
     unavailable: 'Ваш браузер не підтримує WebGL, тому 3D-Земля не може відобразитися.',
     imagery: 'Підвантажую чіткий знімок NASA',
     search: {
-      label: 'Пошук країни',
-      placeholder: 'Країна, наприклад Україна',
+      label: 'Пошук країни або міста',
+      placeholder: 'Країна або місто, наприклад Харків',
       go: 'Показати',
-      notFound: 'Такої країни не знайдено',
+      notFound: 'Не знайдено ні країни, ні міста з такою назвою',
     },
     layers: {
       title: 'Шари',
@@ -93,10 +93,10 @@ const en: Dict = {
     unavailable: 'Your browser does not support WebGL, so the 3D Earth cannot be shown.',
     imagery: 'Loading sharper NASA imagery',
     search: {
-      label: 'Find a country',
-      placeholder: 'Country, for example Ukraine',
+      label: 'Find a country or a city',
+      placeholder: 'Country or city, for example Kharkiv',
       go: 'Show',
-      notFound: 'No country by that name',
+      notFound: 'No country or city by that name',
     },
     layers: {
       title: 'Layers',

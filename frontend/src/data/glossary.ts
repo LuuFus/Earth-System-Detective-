@@ -460,8 +460,8 @@ export const glossary: Term[] = [
     group: 'fire',
     term: { uk: 'Радіаційний фон, мкЗв/год', en: 'Background radiation, µSv/h' },
     text: {
-      uk: 'Потужність дози — скільки опромінення людина отримує за годину. Природний фон є всюди: від ґрунту, каміння й космосу. На сайті його показують станції, кожна з яких постійно міряє фон саме у своєму місці (дані SaveEcoBot).',
-      en: 'The dose rate — how much radiation a person receives per hour. Natural background is everywhere: from soil, rock and space. On the site it comes from stations, each of which keeps measuring the background at its own place (SaveEcoBot data).',
+      uk: 'Потужність дози — скільки опромінення людина отримує за годину. Природний фон є всюди: від ґрунту, каміння й космосу. На сайті його показують станції, кожна з яких постійно міряє фон саме у своєму місці (Україна — SaveEcoBot; Німеччина й Фінляндія — державні мережі BfS і STUK; решта світу — волонтерські лічильники Safecast і Sensor.Community).',
+      en: 'The dose rate — how much radiation a person receives per hour. Natural background is everywhere: from soil, rock and space. On the site it comes from stations, each of which keeps measuring the background at its own place (Ukraine: SaveEcoBot; Germany and Finland: the national networks BfS and STUK; elsewhere: volunteer counters of Safecast and Sensor.Community).',
     },
     formula: [{ uk: 'доза (мкЗв) = потужність (мкЗв/год) × час (год)', en: 'dose (µSv) = dose rate (µSv/h) × time (h)' }],
     values: { uk: 'до 0,15 — низький фон; 0,15–0,3 — звичайний; 0,3–1 — підвищений (граніт, гори); понад 1 — забруднені ділянки, як у Чорнобильській зоні. 1 мкЗв/год = 1 000 нЗв/год.', en: 'up to 0.15: low background; 0.15-0.3: ordinary; 0.3-1: raised (granite, mountains); over 1: contaminated spots, as in the Chornobyl zone. 1 µSv/h = 1,000 nSv/h.' },

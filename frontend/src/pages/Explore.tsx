@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { countryRegion, regionBox, regionCentre, type Region } from '../analysis/series';
-import { CountrySearch } from '../components/CountrySearch';
+import { CountrySearch, type Found } from '../components/CountrySearch';
+import { CityCard } from '../components/studio/CityCard';
+import { ForecastPlayer, SmokePlayer } from '../components/studio/SmokePlayer';
+import { findHotspots, townsAround, type Hotspot } from '../data/hotspots';
+import { smokeSceneFor } from '../data/smokeScenes';
+import { useLoaded } from '../hooks/useLoaded';
+import { useSmoke, type SmokeTarget } from '../hooks/useSmoke';
+import { cityPlace, cityRegion, loadCities, nearestCity, type CityPlace, type WorldCity } from '../data/cities';
 import {
   Globe,
   type GlobeApi,
@@ -16,6 +23,7 @@ import {
   type GlobeView,
   type GlobeWind,
 } from '../components/Globe';
+import { firesSource } from '../components/globe/mvt';
 import { daysSource, gapFilledSource, nativeSource, wmsSource, wmtsSource } from '../components/globe/tiles';
 import { AnalysisDrawer } from '../components/studio/AnalysisDrawer';
 import { HintCard, HintPreview } from '../components/studio/HintCard';
@@ -33,7 +41,6 @@ import { Timeline } from '../components/studio/Timeline';
 import { WeatherPanel } from '../components/studio/WeatherPanel';
 import { TopBar } from '../components/TopBar';
 import { cases, type Case } from '../data/cases';
-import type { Country } from '../data/countries';
 import { eventsFor } from '../data/events';
 import { countryAt, countryName, loadBorders, loadCountries, loadLabels, type GeoBorders, type GeoCountry, type GeoLabels } from '../data/geo';
 import { HINT_KINDS, hintById, hints, type Hint } from '../data/hints';
@@ -78,6 +85,18 @@ const UKRAINE_VIEW = { lat: 48.6, lon: 31.4, distance: 1.55 };
 const WMS_LEVEL: Record<string, number> = { '2km': 5, '1km': 6, '500m': 7, '250m': 8 };
 
 /** The 3D Earth studio: globe, tool rail, panels, analysis drawer and timeline. */
+/** A hotspot's name: its country, and the biggest town near it (or how far the nearest one is). */
+function hotspotName(h: Hotspot, code: string, cities: WorldCity[] | null, lang: 'uk' | 'en'): string {
+  const country = code ? countryName(code, lang) : `${h.lat.toFixed(1)}°, ${h.lon.toFixed(1)}°`;
+  const close = cities ? townsAround(cities, h.lat, h.lon, 300, 1)[0] : undefined;
+  if (close) return lang === 'uk' ? `${country}, біля міста ${close.uk}` : `${country}, near ${close.en}`;
+  const far = cities ? nearestCity(cities, h.lat, h.lon, 1500) : null;
+  if (!far) return country;
+  const km = Math.round(far.km / 10) * 10;
+  return lang === 'uk' ? `${country}, ${km} км від міста ${far.city.uk}` : `${country}, ${km} km from ${far.city.en}`;
+}
+
+
 export default function Explore() {
   const { lang, t } = useI18n();
   const s = useStudio();
@@ -178,7 +197,12 @@ export default function Explore() {
       const date = state.blackout && BLACKOUT_DATES[year] ? BLACKOUT_DATES[year] : exact ?? (img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month));
       // Points are drawn by the server at a fixed size, so finer levels just make them sharper.
       const wmsLevel = img.points ? 10 : (WMS_LEVEL[img.matrixSet] ?? 6);
-      let source = img.via === 'wms' ? wmsSource(img.layer, wmsLevel, date) : wmtsSource(img.layer, img.matrixSet, img.format, img.static ? 'default' : date);
+      let source =
+        img.via === 'mvt' && img.satellites
+          ? firesSource(img.satellites, date)
+          : img.via === 'wms'
+            ? wmsSource(img.layer, wmsLevel, date)
+            : wmtsSource(img.layer, img.matrixSet, img.format, img.static ? 'default' : date);
       if (img.gapFill) {
         // Swath gaps: filled from the other satellite of the same day, or left open before it flew.
         const fill = img.gapFill.find((f) => date >= f.first);
@@ -195,6 +219,8 @@ export default function Explore() {
   const imagery = useMemo(() => imageryFor(state.year), [imageryFor, state.year]);
 
   // ---------- live layers ----------
+  // The city list: the Cities layer, names for points, towns for the smoke scenes.
+  const cityList = useLoaded(loadCities);
   const live = useLiveManifest();
   const manifest = live.manifest;
 
@@ -202,7 +228,7 @@ export default function Explore() {
   const [pointerSeen, setPointerSeen] = useState(false);
   const [fireData, setFireData] = useState<LiveFires | null>(null);
   useEffect(() => {
-    if ((!state.liveFires && !pointerSeen) || !manifest?.fires) return;
+    if ((!state.liveFires && !pointerSeen && state.panel !== 'fires') || !manifest?.fires) return;
     let cancelled = false;
     loadFires(manifest)
       .then((f) => !cancelled && setFireData(f))
@@ -210,7 +236,7 @@ export default function Explore() {
     return () => {
       cancelled = true;
     };
-  }, [state.liveFires, pointerSeen, manifest]);
+  }, [state.liveFires, pointerSeen, state.panel, manifest]);
   const liveFires = useMemo<GlobePoints | null>(() => {
     if (!fireData || !manifest) return null;
     // Ages were counted at the build; add the hours since then.
@@ -243,12 +269,69 @@ export default function Explore() {
       cancelled = true;
     };
   }, [story]);
-  const openStory = useCallback((st: FireStory) => {
-    setStory(st);
-    dispatch({ type: 'play', on: false });
-    globe.current?.flyTo(st.camera.lat, st.camera.lon, st.camera.distance);
-  }, []);
-  const fires = story ? storyPoints : state.liveFires ? liveFires : null;
+  // Smoke scenes (a story's past days, or the next day over fires burning now): the side panel
+  // goes, so the scene has the whole view.
+  const closePanel = useCallback(() => dispatch({ type: 'panel', panel: null }), []);
+  const smokeTarget = useMemo<{ current: SmokeTarget }>(
+    () => ({
+      current: {
+        show: (layer) => globe.current?.setSmoke(layer),
+        // On a wide screen the scene's panel covers the right: look a little east.
+        look: ({ lat, lon, distance, box }) => globe.current?.flyTo(lat, lon + (window.innerWidth > 900 ? (box.e - box.w) * 0.18 : 0), distance),
+        storyTime: (h) => globe.current?.setStoryTime(h),
+      },
+    }),
+    [],
+  );
+  const smoke = useSmoke(smokeTarget, closePanel);
+  const closeSmoke = smoke.close;
+  // Where most fire burns now: connected areas of the last 48 hours, named after a town nearby.
+  const hotList = useMemo(() => {
+    if (!fireData || !manifest) return null;
+    const since = Math.max(0, (Date.now() - Date.parse(manifest.built)) / 3600_000);
+    return findHotspots(fireData, since, 10);
+  }, [fireData, manifest]);
+  // The country each hotspot is in, by its borders (Natural Earth).
+  const [hotCountry, setHotCountry] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!hotList) return;
+    let cancelled = false;
+    void Promise.all(hotList.map((h) => countryAt(h.lat, h.lon).then((c) => [h.id, c?.code ?? ''] as const)))
+      .then((pairs) => !cancelled && setHotCountry(Object.fromEntries(pairs)))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [hotList]);
+  const hotspots = useMemo(() => hotList?.map((h) => ({ h, name: hotspotName(h, hotCountry[h.id] ?? '', cityList, lang) })) ?? null, [hotList, hotCountry, cityList, lang]);
+  const openHotspot = useCallback(
+    (h: Hotspot, name: string) => {
+      if (!fireData || !manifest) return;
+      setStory(null);
+      dispatch({ type: 'set', state: { liveFires: true } });
+      smoke.openForecast(h, name, fireData, manifest, cityList ?? [], lang);
+    },
+    [fireData, manifest, cityList, lang, smoke],
+  );
+
+  // Another story (or none): its smoke scene, if one was open, goes with the old one.
+  const pickStory = useCallback(
+    (st: FireStory | null) => {
+      closeSmoke();
+      setStory(st);
+    },
+    [closeSmoke],
+  );
+  const openStory = useCallback(
+    (st: FireStory) => {
+      pickStory(st);
+      dispatch({ type: 'play', on: false });
+      globe.current?.flyTo(st.camera.lat, st.camera.lon, st.camera.distance);
+    },
+    [pickStory],
+  );
+  // The live fires are about now: while two years are compared on the shutter they would mislead.
+  const fires = story ? storyPoints : state.liveFires && state.compare === null ? liveFires : null;
 
   // Air quality (SaveEcoBot), checked again every five minutes while shown.
   const [aqi, setAqi] = useState<{ stations: AqiStation[] | null; error: boolean }>({ stations: null, error: false });
@@ -422,11 +505,11 @@ export default function Explore() {
     [occPainter],
   );
   const openOccupation = useCallback(() => {
-    setStory(null);
+    pickStory(null);
     setOccOpen(true);
     dispatch({ type: 'play', on: false });
     globe.current?.flyTo(46.0, 34.0, 1.5);
-  }, []);
+  }, [pickStory]);
 
   // Weather on the globe (GFS): the forecast hour closest to now, checked again every minute.
   const [frame, setFrame] = useState<WeatherFrame | null>(null);
@@ -560,12 +643,15 @@ export default function Explore() {
     globe.current?.flyTo(h.lat, h.lon, h.show?.distance ?? 1.6);
   }, []);
   // The event's layer on its exact day, the camera over the place.
-  const onShowEvent = useCallback((h: Hint) => {
-    if (!h.show) return;
-    setStory(null);
-    dispatch({ type: 'show', variable: h.show.layer, date: h.show.date });
-    globe.current?.flyTo(h.lat, h.lon, h.show.distance ?? 1.6);
-  }, []);
+  const onShowEvent = useCallback(
+    (h: Hint) => {
+      if (!h.show) return;
+      pickStory(null);
+      dispatch({ type: 'show', variable: h.show.layer, date: h.show.date });
+      globe.current?.flyTo(h.lat, h.lon, h.show.distance ?? 1.6);
+    },
+    [pickStory],
+  );
   const onEventStory = useCallback(
     (id: string) => {
       void loadStories()
@@ -577,6 +663,22 @@ export default function Explore() {
         .catch(() => undefined);
     },
     [openStory],
+  );
+  // From a news card straight to the smoke of its fire story.
+  const onEventSmoke = useCallback(
+    (id: string) => {
+      void loadStories()
+        .then((d) => {
+          setStories(d.stories);
+          const st = d.stories.find((x) => x.id === id);
+          if (!st) return;
+          setHintId(null);
+          openStory(st);
+          smoke.openStory(st, cityList ?? [], lang);
+        })
+        .catch(() => undefined);
+    },
+    [openStory, smoke, cityList, lang],
   );
 
   const markers = useMemo<GlobeMarker[]>(() => {
@@ -637,13 +739,46 @@ export default function Explore() {
     globe.current?.flyTo(c.camera.lat, c.camera.lon, c.camera.distance);
   }, []);
 
-  const onFound = useCallback(
-    (country: Country) => {
-      dispatch({ type: 'borders', on: true });
-      dispatch({ type: 'weatherAt', place: { lat: country.lat, lon: country.lon, name: { uk: countryName(country.code, 'uk'), en: countryName(country.code, 'en') } } });
-      globe.current?.flyTo(country.lat, country.lon, country.big ? 2.2 : 1.45);
+  // Cities: the layer, the card of the one picked, and names for points that fall on a city.
+  // The Cities layer belongs to "Borders and names", like the capitals, seas and rivers.
+  const globeCities = useMemo(() => (state.borders && state.cities && cityList ? cityList : null), [state.borders, state.cities, cityList]);
+  const [cityCard, setCityCard] = useState<CityPlace | null>(null);
+  const onCity = useCallback(
+    (id: number) => {
+      const c = cityList?.[id];
+      if (c) setCityCard(cityPlace(c));
     },
-    [],
+    [cityList],
+  );
+  // A shared link keeps a city only as a point: give it back its name and numbers.
+  useEffect(() => {
+    if (!cityList) return;
+    for (const slot of ['A', 'B'] as const) {
+      const r = slot === 'A' ? state.regionA : state.regionB;
+      if (r?.kind !== 'point' || r.city || r.name) continue;
+      const near = nearestCity(cityList, r.lat, r.lon, 1);
+      if (near) dispatch({ type: 'region', slot, region: { ...cityRegion(cityPlace(near.city)), radiusKm: r.radiusKm } });
+    }
+  }, [cityList, state.regionA, state.regionB]);
+
+  const onFound = useCallback((place: Found) => {
+    dispatch({ type: 'weatherAt', place: { lat: place.lat, lon: place.lon, name: place.name } });
+    if (place.kind === 'country') {
+      dispatch({ type: 'borders', on: true });
+      globe.current?.flyTo(place.lat, place.lon, place.big ? 2.2 : 1.45);
+      return;
+    }
+    const c = place.city;
+    setCityCard(c ? cityPlace(c) : { name: place.name, lat: place.lat, lon: place.lon, code: place.code });
+    globe.current?.flyTo(place.lat, place.lon, 1.12);
+  }, []);
+  const onCityCompare = useCallback(
+    (slot: Slot) => {
+      if (!cityCard) return;
+      dispatch({ type: 'region', slot, region: cityRegion(cityCard) });
+      setCityCard(null);
+    },
+    [cityCard],
   );
 
   const onCountry = useCallback((slot: Slot, c: GeoCountry) => {
@@ -735,6 +870,8 @@ export default function Explore() {
         radStations={radLayer}
         onRadHover={onRadHover}
         onRadPick={onRadPick}
+        cities={globeCities}
+        onCity={onCity}
         field={globeField}
         wind={globeWind}
         onHint={onHint}
@@ -775,10 +912,15 @@ export default function Explore() {
               onVariable={(id) => dispatch({ type: 'variable', id })}
               onMode={(mode) => dispatch({ type: 'mode', mode })}
               onBorders={(on) => dispatch({ type: 'borders', on })}
+              cities={state.cities}
+              onCities={(on) => dispatch({ type: 'set', state: { cities: on } })}
             />
           )}
           {state.panel === 'fires' && (
             <FiresPanel
+              archiveDay={state.variable === 'fires' ? (state.day ?? (variable?.imagery ? imageryDate(variable.imagery, state.year) : null)) : null}
+              onArchiveDay={(date) => dispatch({ type: 'show', variable: 'fires', date })}
+              comparing={state.compare !== null}
               liveFires={state.liveFires}
               onLiveFires={(on) => dispatch({ type: 'set', state: { liveFires: on } })}
               manifest={manifest}
@@ -788,6 +930,8 @@ export default function Explore() {
               storyId={story?.id ?? null}
               onStory={openStory}
               onUkraine={flyUkraine}
+              hotspots={hotspots}
+              onHotspot={openHotspot}
             />
           )}
           {state.panel === 'ukraine' && (
@@ -874,11 +1018,60 @@ export default function Explore() {
           onRemoveB={() => dispatch({ type: 'region', slot: 'B', region: null })}
           onRadius={(km) => dispatch({ type: 'radius', km })}
           onSeason={(season) => dispatch({ type: 'season', season })}
+          manifest={manifest}
         />
       )}
 
-      {story && (
-        <StoryPlayer story={story} onTime={(h) => globe.current?.setStoryTime(h)} onClose={() => setStory(null)} />
+      {cityCard && (
+        <CityCard
+          place={cityCard}
+          manifest={manifest}
+          onCompare={onCityCompare}
+          onWeather={() => {
+            dispatch({ type: 'weatherAt', place: { lat: cityCard.lat, lon: cityCard.lon, name: cityCard.name } });
+            dispatch({ type: 'panel', panel: 'weather' });
+            setCityCard(null);
+          }}
+          onClose={() => setCityCard(null)}
+        />
+      )}
+
+      {story && !smoke.state && (
+        <StoryPlayer
+          key={story.id}
+          story={story}
+          onTime={(h) => globe.current?.setStoryTime(h)}
+          onClose={() => pickStory(null)}
+          onSmoke={smokeSceneFor(story.id) ? () => smoke.openStory(story, cityList ?? [], lang) : undefined}
+        />
+      )}
+      {story && smoke.state?.kind === 'story' && (
+        <SmokePlayer
+          key={`${smoke.state.scene.storyId}|${smoke.state.status}`}
+          scene={smoke.state.scene}
+          story={story}
+          status={smoke.state.status}
+          towns={smoke.state.towns}
+          onTime={(h) => {
+            smoke.layer.setTime(h);
+            if (smoke.state?.kind === 'story') globe.current?.setStoryTime(smoke.state.offset + h);
+          }}
+          onClose={closeSmoke}
+        />
+      )}
+      {smoke.state?.kind === 'forecast' && (
+        <ForecastPlayer
+          key={`${smoke.state.hotspot.id}|${smoke.state.status}`}
+          hotspot={smoke.state.hotspot}
+          title={smoke.state.title}
+          start={smoke.state.start}
+          hours={smoke.state.hours}
+          status={smoke.state.status}
+          weather={smoke.state.weather}
+          air={smoke.state.air}
+          onTime={(h) => smoke.layer.setTime(h)}
+          onClose={closeSmoke}
+        />
       )}
 
       {occOpen && !story && occ.history && <OccupationPlayer history={occ.history} onPos={onOccPos} onClose={() => setOccOpen(false)} />}
@@ -955,8 +1148,9 @@ export default function Explore() {
           onLayer={(id) => dispatch({ type: 'variable', id: id as VariableId })}
           onShow={onShowEvent}
           onStory={onEventStory}
+          onSmoke={onEventSmoke}
           onBlackout={() => {
-            setStory(null);
+            pickStory(null);
             dispatch({ type: 'blackout', on: true });
             flyUkraine();
           }}

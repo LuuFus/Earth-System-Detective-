@@ -1,7 +1,7 @@
 {
  "source": "NASA FIRMS, VIIRS 375 m (Suomi NPP), yearly country archives; type 0, nominal and high confidence",
  "url": "https://firms.modaps.eosdis.nasa.gov/country/",
- "built": "2026-11-23",
+ "built": "2026-11-24",
  "stories": [
   {
    "id": "chornobyl-2020",
@@ -411,6 +411,137 @@
     3
    ],
    "file": "stories/front-2022.bin"
+  },
+  {
+   "id": "vasylkiv-2022",
+   "box": {
+    "w": 29.9,
+    "s": 50.0,
+    "e": 30.7,
+    "n": 50.4
+   },
+   "start": "2022-02-26",
+   "camera": {
+    "lat": 50.2,
+    "lon": 30.3,
+    "distance": 1.03
+   },
+   "title": {
+    "uk": "Нафтобаза під Васильковом, лютий 2022",
+    "en": "Oil depot near Vasylkiv, February 2022"
+   },
+   "text": {
+    "uk": "У ніч на 27 лютого 2022 року російська ракета влучила в нафтобазу біля Василькова (село Крячки) під Києвом. Загорілися резервуари з пальним; гасити їх заважали бої за васильківський аеродром, і пожежа тривала кілька днів. Чорний дим від нафтопродуктів понесло вітром над Київщиною.",
+    "en": "In the night of 27 February 2022 a Russian missile hit an oil depot by Vasylkiv (the village of Kriachky) near Kyiv. Fuel tanks caught fire; fighting for the Vasylkiv airfield kept firefighters away, and the fire burned for days. Black smoke from the fuel drifted over the Kyiv region."
+   },
+   "days": 6,
+   "count": 12,
+   "perDay": [
+    3,
+    2,
+    7,
+    0,
+    0,
+    0
+   ],
+   "file": "stories/vasylkiv-2022.bin"
+  },
+  {
+   "id": "azot-2022",
+   "box": {
+    "w": 38.3,
+    "s": 48.85,
+    "e": 38.7,
+    "n": 49.05
+   },
+   "start": "2022-06-10",
+   "camera": {
+    "lat": 48.95,
+    "lon": 38.5,
+    "distance": 1.03
+   },
+   "title": {
+    "uk": "Завод «Азот» у Сєвєродонецьку, червень 2022",
+    "en": "The Azot plant in Sievierodonetsk, June 2022"
+   },
+   "text": {
+    "uk": "11 червня 2022 року під час боїв за Сєвєродонецьк російський обстріл пошкодив хімічний завод «Азот»: з пробитих радіаторів витекли десятки тонн оливи, і спалахнула сильна пожежа. У сховищах заводу тоді ховалися сотні цивільних.",
+    "en": "On 11 June 2022, during the battle for Sievierodonetsk, Russian shelling damaged the Azot chemical plant: tens of tonnes of oil leaked from broken radiators and a fierce fire broke out. Hundreds of civilians were sheltering in the plant's basements."
+   },
+   "days": 5,
+   "count": 151,
+   "perDay": [
+    53,
+    34,
+    33,
+    8,
+    23
+   ],
+   "file": "stories/azot-2022.bin"
+  },
+  {
+   "id": "odesa-ports-2023",
+   "box": {
+    "w": 30.5,
+    "s": 46.2,
+    "e": 30.9,
+    "n": 46.6
+   },
+   "start": "2023-07-17",
+   "camera": {
+    "lat": 46.4,
+    "lon": 30.7,
+    "distance": 1.03
+   },
+   "title": {
+    "uk": "Порти Одеси й Чорноморська, липень 2023",
+    "en": "The ports of Odesa and Chornomorsk, July 2023"
+   },
+   "text": {
+    "uk": "Після виходу Росії із зернової угоди вона кілька ночей поспіль атакувала порти Одещини. У ніч на 19 липня 2023 року удари пошкодили зернові термінали в Одесі й Чорноморську; Мінагрополітики повідомило про 60 тисяч тонн знищеного зерна.",
+    "en": "After Russia left the grain deal it struck the ports of the Odesa region several nights in a row. In the night of 19 July 2023 strikes damaged grain terminals in Odesa and Chornomorsk; Ukraine's agriculture ministry reported 60,000 tonnes of grain destroyed."
+   },
+   "days": 5,
+   "count": 9,
+   "perDay": [
+    0,
+    4,
+    5,
+    0,
+    0
+   ],
+   "file": "stories/odesa-ports-2023.bin"
+  },
+  {
+   "id": "kyiv-2025",
+   "box": {
+    "w": 30.2,
+    "s": 50.3,
+    "e": 30.85,
+    "n": 50.6
+   },
+   "start": "2025-06-16",
+   "camera": {
+    "lat": 50.45,
+    "lon": 30.52,
+    "distance": 1.03
+   },
+   "title": {
+    "uk": "Масована атака на Київ, 17 червня 2025",
+    "en": "The mass attack on Kyiv, 17 June 2025"
+   },
+   "text": {
+    "uk": "У ніч на 17 червня 2025 року Росія атакувала Київ сотнями дронів і десятками ракет. Балістична ракета зруйнувала під'їзд дев'ятиповерхівки в Солом'янському районі; лише там загинули 23 людини. У місті горіли житлові будинки й інші будівлі.",
+    "en": "In the night of 17 June 2025 Russia attacked Kyiv with hundreds of drones and dozens of missiles. A ballistic missile destroyed a section of a nine-storey block in the Solomianskyi district; 23 people died there alone. Homes and other buildings burned across the city."
+   },
+   "days": 3,
+   "count": 28,
+   "perDay": [
+    15,
+    13,
+    0
+   ],
+   "file": "stories/kyiv-2025.bin"
   },
   {
    "id": "evia-2021",

@@ -1,3 +1,5 @@
+import { smokeSceneFor } from '../../data/smokeScenes';
+import { useSmokeText } from '../../i18n/smoke';
 import { HINT_KINDS, whenText, type Hint } from '../../data/hints';
 import { photoPage, photoUrl } from '../../data/photos';
 import { variableById } from '../../data/variables';
@@ -46,6 +48,8 @@ type CardProps = {
   onShow?: (hint: Hint) => void;
   /** Plays a fire story by id. */
   onStory?: (id: string) => void;
+  /** The smoke scene of the event's fire story, when it has one. */
+  onSmoke?: (id: string) => void;
   /** Opens the night-lights comparison over Ukraine. */
   onBlackout?: () => void;
   /** Turns on the event's layer for its usual date (events with no exact day). */
@@ -53,7 +57,8 @@ type CardProps = {
 };
 
 /** What an event is about: when and where, what happened, the main causes, the consequences, what can be done. */
-export function HintCard({ hint, onClose, onOpenCase, onShow, onStory, onBlackout, onLayer }: CardProps) {
+export function HintCard({ hint, onClose, onOpenCase, onShow, onStory, onSmoke, onBlackout, onLayer }: CardProps) {
+  const smokeText = useSmokeText();
   const { lang } = useI18n();
   const s = useStudio();
   const t = useLiveText().event;
@@ -156,6 +161,12 @@ export function HintCard({ hint, onClose, onOpenCase, onShow, onStory, onBlackou
             <button type="button" className="btn" onClick={() => onStory(hint.storyId!)}>
               <Icon name="play" size={16} />
               {t.story}
+            </button>
+          )}
+          {hint.storyId && onSmoke && smokeSceneFor(hint.storyId) && (
+            <button type="button" className="btn" onClick={() => onSmoke(hint.storyId!)}>
+              <Icon name="wind" size={16} />
+              {smokeText.open}
             </button>
           )}
           {shown && onShow && (

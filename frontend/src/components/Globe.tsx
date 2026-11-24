@@ -12,6 +12,9 @@ import { useReducedMotion } from '../hooks/useMedia';
 import type { Lang } from '../i18n/strings';
 import { FlowLayer, type Projection, type WindSampler } from './globe/flow';
 import { PointsLayer, type GlobePoints } from './globe/points';
+import type { SmokeLayer } from './globe/smoke';
+import { SmokeField } from './globe/smokeField';
+import { CityLayer } from './globe/cities';
 import { StationLayer, type Stations } from './globe/stations';
 import { PATHS } from './studio/Icon';
 
@@ -95,6 +98,8 @@ export type GlobeLight = 'flat' | 'sun' | 'night';
 /** A weather field painted on an equirectangular canvas (lon -180..180, lat 90..-90). */
 export type GlobeField = { canvas: HTMLCanvasElement; key: string; opacity: number };
 export type GlobeWind = { key: string; sample: WindSampler };
+/** A city of the Cities layer: a dot and its name, bigger cities from farther out. */
+export type GlobeCity = { id: number; uk: string; en: string; lat: number; lon: number; pop: number };
 export type { GlobePoints, Stations as GlobeStations };
 
 export type GlobeApi = {
@@ -113,6 +118,8 @@ export type GlobeApi = {
   sampleImagery: (lat: number, lon: number) => [number, number, number, number] | null;
   /** The front layer's canvas was repainted in place (an animation): upload it again. */
   touchFront: () => void;
+  /** Smoke carried by the wind (a smoke scene), drawn every frame while set. */
+  setSmoke: (layer: SmokeLayer | null) => void;
 };
 
 type Props = {
@@ -147,6 +154,9 @@ type Props = {
   radStations?: Stations | null;
   onRadHover?: (index: number, x: number, y: number) => void;
   onRadPick?: (index: number) => void;
+  /** The Cities layer, and a click on one of its cities. */
+  cities?: GlobeCity[] | null;
+  onCity?: (id: number) => void;
   /** Second vector layer: the front line (DeepState). */
   front?: GlobeVector | null;
   field?: GlobeField | null;
@@ -171,6 +181,13 @@ function fromLatLon(lat: number, lon: number, radius: number): THREE.Vector3 {
   const la = THREE.MathUtils.degToRad(lat);
   const lo = THREE.MathUtils.degToRad(lon);
   return new THREE.Vector3(Math.cos(la) * Math.cos(lo), Math.sin(la), -Math.cos(la) * Math.sin(lo)).multiplyScalar(radius);
+}
+
+/** A place on the sphere written into `out` (no allocation: used for every smoke puff, every frame). */
+function setLatLon(out: THREE.Vector3, lat: number, lon: number, radius: number): THREE.Vector3 {
+  const la = THREE.MathUtils.degToRad(lat);
+  const lo = THREE.MathUtils.degToRad(lon);
+  return out.set(Math.cos(la) * Math.cos(lo) * radius, Math.sin(la) * radius, -Math.cos(la) * Math.sin(lo) * radius);
 }
 
 function toLatLon(p: THREE.Vector3): GlobePoint {
@@ -393,6 +410,7 @@ type Api = GlobeApi & {
   setFront: (vector: GlobeVector | null) => void;
   setField: (field: GlobeField | null) => void;
   setWind: (wind: GlobeWind | null) => void;
+  setCities: (cities: GlobeCity[] | null) => void;
   dispose: () => void;
 };
 
@@ -402,6 +420,7 @@ type Callbacks = {
   onStationPick: (index: number) => void;
   onRadHover: (index: number, x: number, y: number) => void;
   onRadPick: (index: number) => void;
+  onCity: (id: number) => void;
   onHover: (point: GlobePoint | null) => void;
   onPick: (point: GlobePoint) => void;
   onView: (view: GlobeView) => void;
@@ -499,7 +518,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   );
   scene.add(earth);
 
-  const fireColor = readToken('--color-fire', '#ffd23f');
+  // The archive fires layer (one day of a year) in its own colour, apart from the live 48-hour points.
+  const fireColor = readToken('--color-fire-archive', '#ff5a3c');
   const split = { value: 0 };
   let splitFraction = 0.5;
   // Land mask for land-only layers: drawn once from the Natural Earth country outlines.
@@ -956,6 +976,11 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const rect = canvas.getBoundingClientRect();
     return radLayer.hit(e.clientX - rect.left, e.clientY - rect.top);
   };
+  const cityAt = (e: PointerEvent) => {
+    if (!cityLayer.active) return -1;
+    const rect = canvas.getBoundingClientRect();
+    return cityLayer.hit(e.clientX - rect.left, e.clientY - rect.top);
+  };
   const onMove = (e: PointerEvent) => {
     if (e.pointerType !== 'mouse' || e.buttons) return;
     toNdc(e);
@@ -964,11 +989,13 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const rect = canvas.getBoundingClientRect();
     const i = stationAt(e);
     const r = i >= 0 ? -1 : radAt(e);
-    if (i !== stationLayer.hovered || r !== radLayer.hovered) {
+    const c = i >= 0 || r >= 0 ? -1 : cityAt(e);
+    if (i !== stationLayer.hovered || r !== radLayer.hovered || c !== cityLayer.hovered) {
       stationLayer.hovered = i;
       radLayer.hovered = r;
+      cityLayer.hovered = c;
       stationsDirty = true;
-      canvas.style.cursor = i >= 0 || r >= 0 ? 'pointer' : '';
+      canvas.style.cursor = i >= 0 || r >= 0 || c >= 0 ? 'pointer' : '';
     }
     cb.onStationHover(i, i >= 0 ? e.clientX - rect.left : 0, i >= 0 ? e.clientY - rect.top : 0);
     cb.onRadHover(r, r >= 0 ? e.clientX - rect.left : 0, r >= 0 ? e.clientY - rect.top : 0);
@@ -1001,6 +1028,12 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         cb.onRadPick(radStation);
         return;
       }
+      const city = cityAt(e);
+      if (city >= 0) {
+        downAt = null;
+        cb.onCity(city);
+        return;
+      }
       toNdc(e);
       const p = pointAt();
       if (p) {
@@ -1029,6 +1062,9 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const distance = camera.position.length();
     camDir.copy(camera.position).normalize();
     const horizon = 1 / distance;
+    // In front of the horizon by a share of what is left of the near side: a fixed margin hid
+    // every name once the camera came closer than about 1.14 Earth radii.
+    const nearSide = (normal: THREE.Vector3, margin: number) => normal.dot(camDir) > horizon + (1 - horizon) * margin;
     const w = host.clientWidth;
     const h = host.clientHeight;
     const taken: [number, number, number, number][] = [];
@@ -1039,14 +1075,14 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const free = (x0: number, y0: number, x1: number, y1: number) => taken.every(([a, b, c, d]) => x1 < a || x0 > c || y1 < b || y0 > d);
     // Markers and hints always show; map labels keep clear of them.
     for (const m of markerObjects) {
-      m.obj.visible = m.normal.dot(camDir) > horizon + 0.02;
+      m.obj.visible = nearSide(m.normal, 0.03);
       if (m.obj.visible) {
         const [x, y] = screen(m.normal);
         taken.push([x - 12, y - 12, x + 150, y + 12]);
       }
     }
     for (const hint of hintObjects) {
-      hint.obj.visible = (hint.always || distance <= HINTS_FROM) && hint.normal.dot(camDir) > horizon + 0.05;
+      hint.obj.visible = (hint.always || distance <= HINTS_FROM) && nearSide(hint.normal, 0.07);
       if (hint.obj.visible) {
         const [x, y] = screen(hint.normal);
         taken.push([x - 16, y - 34, x + 16, y + 2]);
@@ -1057,8 +1093,9 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       const on =
         shown &&
         distance <= l.from &&
-        (l.layer === 'country' || layers[l.layer === 'capital' ? 'capitals' : l.layer === 'sea' ? 'seas' : 'rivers']) &&
-        l.normal.dot(camDir) > horizon + (l.layer === 'sea' ? 0.08 : 0.12);
+        // The Cities layer names the capitals itself.
+        (l.layer === 'country' || (layers[l.layer === 'capital' ? 'capitals' : l.layer === 'sea' ? 'seas' : 'rivers'] && !(l.layer === 'capital' && cityLayer.active))) &&
+        nearSide(l.normal, l.layer === 'sea' ? 0.11 : 0.16);
       if (!on) {
         l.obj.visible = false;
         continue;
@@ -1067,7 +1104,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       const x0 = x - l.w * l.ax - 2;
       // A name that collides tries just below, then just above its place; a capital's dot cannot
       // move, so a capital without room for its name still shows its dot.
-      const shifts = l.layer === 'capital' ? [0] : [0, l.h + 4, -(l.h + 4)];
+      const dotted = l.layer === 'capital';
+      const shifts = dotted ? [0] : [0, l.h + 4, -(l.h + 4)];
       let placed: number | null = null;
       for (const dy of shifts) {
         const box: [number, number, number, number] = [x0, y + dy - l.h / 2 - 1, x0 + l.w + 4, y + dy + l.h / 2 + 1];
@@ -1078,7 +1116,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         }
       }
       let dotOnly = false;
-      if (placed === null && l.layer === 'capital' && free(x - 4, y - 4, x + 4, y + 4)) {
+      if (placed === null && dotted && free(x - 4, y - 4, x + 4, y + 4)) {
         taken.push([x - 4, y - 4, x + 4, y + 4]);
         placed = 0;
         dotOnly = true;
@@ -1086,7 +1124,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       l.obj.visible = placed !== null;
       if (placed !== null) {
         l.obj.element.style.marginTop = placed ? `${placed}px` : '';
-        if (l.layer === 'capital') l.obj.element.classList.toggle('globe__place--dot-only', dotOnly);
+        if (dotted) l.obj.element.classList.toggle('globe__place--dot-only', dotOnly);
       }
     }
     if (rivers) rivers.visible = shown && layers.rivers;
@@ -1147,6 +1185,11 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   const radLayer = new StationLayer('globe__rad', 'tag');
   radLayer.canvas.hidden = true;
   host.insertBefore(radLayer.canvas, labelRenderer.domElement);
+  // City names: under the station bubbles, above the map.
+  const cityLayer = new CityLayer('globe__cities');
+  cityLayer.canvas.hidden = true;
+  cityLayer.lang = opts.lang;
+  host.insertBefore(cityLayer.canvas, stationLayer.canvas);
   let stationsDirty = false;
 
   const lastCamera = new THREE.Matrix4();
@@ -1157,13 +1200,27 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     lastCamera.copy(camera.matrixWorld);
     return true;
   };
-  const flowFrame = () => {
-    flowDir.copy(camera.position).normalize();
-    // Pixels per degree at the middle of the view.
+  // Smoke of a smoke scene: its state and canvas come from the page; the puffs and flames are
+  // drawn here on the graphics card, just above the ground (made on first use).
+  let smoke: SmokeLayer | null = null;
+  let smokeField: SmokeField | null = null;
+  /** Screen pixels per degree of latitude at the middle of the view (flowDir must be set). */
+  const pixelsPerDegreeHere = () => {
     const centre = toLatLon(camera.position);
     const a = flowView.project(centre.lat, centre.lon);
     const b = flowView.project(Math.min(89, centre.lat + 0.5), centre.lon);
-    flowPpd = a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) * 2 : 1;
+    return a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) * 2 : flowPpd;
+  };
+  const smokeFrame = (now: number) => {
+    flowDir.copy(camera.position).normalize();
+    flowPpd = pixelsPerDegreeHere();
+    smoke!.draw(flowView, now);
+    smokeField?.update(smoke!.sim, smoke!.time, now, THREE.MathUtils.degToRad(1) / Math.max(1e-3, flowPpd));
+    needsRender = true;
+  };
+  const flowFrame = () => {
+    flowDir.copy(camera.position).normalize();
+    flowPpd = pixelsPerDegreeHere();
     const d = camera.position.length();
     const vHalf = THREE.MathUtils.degToRad(camera.fov / 2);
     const discPx = (Math.tan(Math.asin(1 / d)) / Math.tan(vHalf)) * (host.clientHeight / 2);
@@ -1180,6 +1237,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     flow.resize(w, h, renderer.getPixelRatio());
     stationLayer.resize(w, h, renderer.getPixelRatio());
     radLayer.resize(w, h, renderer.getPixelRatio());
+    cityLayer.resize(w, h, renderer.getPixelRatio());
+    smoke?.resize(w, h, renderer.getPixelRatio());
     stationsDirty = true;
     for (const m of lineMaterials) m.resolution.set(w, h);
     split.value = splitFraction * renderer.domElement.width;
@@ -1217,9 +1276,14 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     const moved = cameraMoved();
     if (moved) flow.clear();
     if (flow.active) flowFrame();
-    if ((stationLayer.active || radLayer.active) && (moved || stationsDirty)) {
+    if (smoke?.active) smokeFrame(now);
+    if ((stationLayer.active || radLayer.active || cityLayer.active) && (moved || stationsDirty)) {
       stationsDirty = false;
       flowDir.copy(camera.position).normalize();
+      if (cityLayer.active) {
+        flowPpd = pixelsPerDegreeHere();
+        cityLayer.draw(flowView);
+      }
       if (stationLayer.active) stationLayer.draw(flowView);
       if (radLayer.active) radLayer.draw(flowView);
     }
@@ -1338,6 +1402,20 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     },
     setFront(next) {
       frontLayer.set(next);
+    },
+    setSmoke(layer) {
+      if (smoke && smoke !== layer) smoke.canvas.remove();
+      smoke = layer;
+      if (layer && !smokeField) {
+        smokeField = new SmokeField({ billboard: true, place: (lat, lon, out) => setLatLon(out, lat, lon, 1.003), kmToWorld: () => 1 / 6371 });
+        scene.add(smokeField.object);
+      }
+      if (!layer) smokeField?.update(null, 0, 0, 1);
+      if (layer) {
+        host.insertBefore(layer.canvas, labelRenderer.domElement);
+        layer.resize(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight), renderer.getPixelRatio());
+      }
+      requestRender();
     },
     touchFront() {
       frontLayer.touch();
@@ -1482,6 +1560,13 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         label.textContent = l.text![lang];
         l.w = textWidth(l.text![lang], l.h > 15 ? 13 : 11) + (l.layer === 'capital' ? 10 : 0);
       }
+      cityLayer.lang = next;
+      stationsDirty = true;
+      requestRender();
+    },
+    setCities(list) {
+      cityLayer.set(list);
+      stationsDirty = true;
       requestRender();
     },
     setGeo(geo, nextLayers) {
@@ -1622,8 +1707,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       night.dispose();
       shade.dispose();
       firePoints.dispose();
+      smokeField?.dispose();
       stationLayer.canvas.remove();
       radLayer.canvas.remove();
+      cityLayer.canvas.remove();
       fieldUniforms.uField.value.dispose();
       earthUniforms.uFallback.value.dispose();
       flow.canvas.remove();
@@ -1671,6 +1758,7 @@ export function Globe(props: Props) {
         onStationPick: (i) => latest.current.onStationPick?.(i),
         onRadHover: (i, x, y) => latest.current.onRadHover?.(i, x, y),
         onRadPick: (i) => latest.current.onRadPick?.(i),
+        onCity: (id) => latest.current.onCity?.(id),
       },
     );
     if (!created) setFailed(true);
@@ -1690,6 +1778,8 @@ export function Globe(props: Props) {
   useEffect(() => api.current?.setImagery(imagery), [imagery]);
   useEffect(() => api.current?.setMarkers(markers), [markers]);
   useEffect(() => api.current?.setHints(props.hints ?? []), [props.hints]);
+  const cities = props.cities ?? null;
+  useEffect(() => api.current?.setCities(cities), [cities]);
   const geo = props.geo ?? null;
   const labelLayers = props.labelLayers;
   useEffect(() => api.current?.setGeo(geo, labelLayers ?? { capitals: true, seas: true, rivers: true }), [geo, labelLayers]);
