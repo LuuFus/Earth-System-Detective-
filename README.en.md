@@ -80,20 +80,28 @@ The screenshots show the Ukrainian interface; the site switches to English with 
 ![3D Earth with the sea temperature layer and the layer shelves](docs/screenshots/layers.jpg)
 
 The main screen (`/explore`) is a Three.js globe with NASA GIBS satellite imagery and relief. On the
-left, a tool column: **Layers, Fires, Ukraine, Weather, Analysis, Events, Glossary, Share**; in the
-middle, a country or city search and a 3D / 2D switch; at the bottom, a timeline. The panel that slides out on
-the left can be **made wider or narrower**: drag its right edge (or use ← → on the keyboard; a button
-in its header switches between the usual and a wide panel); the width is remembered.
+left, a tool column with names under the icons: **Layers, Fires, Ukraine, Weather, Analysis, Events,
+Glossary, Share**; in the middle, a country search and a 3D / 2D switch; at the bottom, a timeline.
+The panel that slides out on the left can be **made wider or narrower**: drag its right edge (or use
+← → on the keyboard; a button in its header switches between the usual and a wide panel); the width
+is remembered. On screens narrower than 1500 px only one side panel (the left one or Analysis) is
+open at a time, so they do not cover the globe.
+
+- **"On"** at the top middle: everything shown now (layers, fires of 48 hours, air, radiation, the
+  front, weather, comparing years, borders), each with its own off button, or all at once.
 
 - **20+ NASA layers on shelves**: temperature (GISTEMP anomaly since 1880, air, land surface, sea),
   water (GPM and MERRA-2 rain, water vapour, humidity, soil moisture, snow, sea ice), air (nitrogen
   dioxide, ozone, carbon monoxide, dust, aerosols, wind), land (NDVI vegetation, land cover, fires),
   people (night lights, population density).
+- **Several layers at once**: up to three, for example fires over aerosols or NO₂; a new layer goes
+  on top and fires always show. The main (latest) layer gives the scale and the years.
 - **Cities** (under "Borders and names", next to the capitals, seas and rivers): over 3,000 cities
   of the world with 100,000 people and more and the cities of Ukraine, with their population; the
   closer you zoom, the more cities. Click a city for a card with its population, built-up area, air,
-  radiation and fires nearby. Cities can be found in the search too (smaller ones through the
-  Open-Meteo geocoder).
+  radiation and fires nearby. Cities are found in the Analysis panel: type a name into box A or B
+  (smaller ones through the Open-Meteo geocoder). The search at the top of the globe finds countries
+  only.
 - **Layer hints**: each layer has a scale with numbers and units and an explanation of the colours;
   the pointer shows the value at a place in words.
 - **Year player**: "From" — the year to play from to the latest; the bottom bar folds away.
@@ -108,7 +116,8 @@ in its header switches between the usual and a wide panel); the width is remembe
 ![The NO₂ value under the pointer, local time and the temperature now](docs/screenshots/readout.jpg)
 
 **Under the pointer**, anywhere on Earth: the place, the temperature now (NOAA GFS), wind, local time,
-the value of the layer that is on, fires and air quality nearby, and the nearest event.
+the value of the layer that is on (for the fires archive, whether a fire point was here that day),
+fires of the last 48 hours and air quality nearby, and an event within 80 km with its date and distance.
 
 ## The real Sun, night and blackout
 
@@ -187,8 +196,7 @@ out to the world the dimming fades). Map styles: relief, satellite, OpenStreetMa
 - **Background radiation at stations around the world**: Ukraine from SaveEcoBot; Germany and Finland
   from the national networks BfS and STUK; elsewhere volunteers' counters of Safecast and
   Sensor.Community (less precise, the card says so). Each tag is a station with its number in µSv/h
-  and a colour for the level (low, ordinary, raised, high). Air and radiation take turns so the
-  markers do not cover each other. The station card explains in plain words what the number means, what it adds up to
+  and a colour for the level (low, ordinary, raised, high). Air and radiation can be on together: a radiation tag that would cover an air bubble moves beside it, with a line to its station. The station card explains in plain words what the number means, what it adds up to
   in a year and what to do. The same on the 3D Earth, in My city and in Ask the Earth ("What is the
   radiation in Kyiv?").
 - **Occupation timeline since 2022** (on the map and on the 3D Earth): a week-by-week player from the
@@ -285,8 +293,21 @@ here later to understand any question.
 
 ![Analysis: air temperature in Ukraine, the 1960–2025 trend](docs/screenshots/trends.jpg)
 
-Pick a country, a region or a point (region A), and the Analysis panel shows the data series and
-checks it for a trend.
+Type a country or a city into box A (or click a point on the globe), and the Analysis panel shows
+the data series and checks whether the change is steady.
+
+- **In short, in plain words**, from the measured numbers only: the first and the last year and the
+  difference, the highest and the lowest, a usual year, and whether the change is steady. Each
+  variable says what one number means ("how much rain fell in the year").
+- **Years**: a period from-to of any length, or **single years** (up to 6). Each picked year is
+  compared with a usual year and with the others, month by month. Two or more picked years show on
+  the globe with the shutter; the "Compare years" button on the timeline is the same thing: its
+  sliders change the picked years in the analysis.
+- **The globe follows the chart**: pick Fires and the globe shows the fires layer of the same year.
+- **The trend carried on** for 10 years shows only when asked for and only for a steady change; it
+  keeps within physical limits (no fewer than zero fires, no humidity above 100%).
+- **Honest data limits**: when a country lies only partly inside the data (NDVI, NO₂ and fires cover
+  Ukraine only), the site says so instead of counting part of it as the whole.
 
 - **Mann-Kendall test**: whether the change is statistically significant (a reliability traffic
   light); the seasonal version for months and days.

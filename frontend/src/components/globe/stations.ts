@@ -1,7 +1,8 @@
 // Measuring stations drawn as coloured bubbles with their value written inside (air quality as
 // circles, radiation as rounded tags), on a 2D canvas over the globe or the flat map. Bubbles that
 // would overlap give way to the ones drawn first (the worst first), so the map stays readable at
-// any zoom; zoom in to see more.
+// any zoom; zoom in to see more. A layer can be told to keep clear of another one (radiation tags
+// of the air bubbles): a tag that would cover a bubble moves beside it, with a line to its station.
 
 import { CanvasLayer } from './canvasLayer';
 import type { Projection } from './flow';
@@ -25,9 +26,12 @@ const R = 12;
 export class StationLayer extends CanvasLayer {
   private data: Stations | null = null;
   private order: number[] = [];
-  private drawn: { i: number; x: number; y: number }[] = [];
+  /** Where each station is drawn (x, y) and where it really is (ax, ay). */
+  private drawn: { i: number; x: number; y: number; ax: number; ay: number }[] = [];
   hovered = -1;
   private readonly shape: 'circle' | 'tag';
+  /** Another layer whose bubbles this one keeps clear of; draw that one first. */
+  avoid: StationLayer | null = null;
 
   constructor(className: string, shape: 'circle' | 'tag' = 'circle') {
     super(className);
@@ -76,17 +80,32 @@ export class StationLayer extends CanvasLayer {
       }
       return false;
     };
+    // The other layer's bubbles (circles of radius R): half this marker plus a bubble apart.
+    const others = this.avoid?.active ? this.avoid.drawn : [];
+    const ox = rx / 2 + R + 2;
+    const oy = ry / 2 + R + 2;
+    const covers = (x: number, y: number) => others.some((p) => ((p.x - x) / ox) ** 2 + ((p.y - y) / oy) ** 2 < 1);
+    // Where a marker may go when its own place is taken by the other layer: above, below, right, left.
+    const shifts: [number, number][] = [
+      [0, 0],
+      [0, -oy],
+      [0, oy],
+      [ox, 0],
+      [-ox, 0],
+    ];
     for (const i of this.order) {
       const p = view.project(data.lat[i], data.lon[i]);
       if (!p) continue;
-      const [x, y] = p;
-      if (x < -R || y < -R || x > this.width + R || y > this.height + R) continue;
-      if (near(x, y)) continue;
+      const [ax, ay] = p;
+      if (ax < -R || ay < -R || ax > this.width + R || ay > this.height + R) continue;
+      const spot = shifts.map(([dx, dy]) => [ax + dx, ay + dy] as const).find(([x, y]) => !near(x, y) && !covers(x, y));
+      if (!spot) continue;
+      const [x, y] = spot;
       const k = Math.floor(y / cell) * cols + Math.floor(x / cell);
       const list = grid.get(k);
       if (list) list.push({ x, y });
       else grid.set(k, [{ x, y }]);
-      this.drawn.push({ i, x, y });
+      this.drawn.push({ i, x, y, ax, ay });
     }
     ctx.font = '700 10.5px Inter Variable, Inter, Arial, sans-serif';
     ctx.textAlign = 'center';
@@ -95,6 +114,22 @@ export class StationLayer extends CanvasLayer {
       const c = data.color[d.i];
       const r = d.i === this.hovered ? R + 3 : R;
       ctx.globalAlpha = data.old?.[d.i] && d.i !== this.hovered ? 0.5 : 1;
+      if (d.x !== d.ax || d.y !== d.ay) {
+        // Moved aside: a thin line and a dot show where the station really is.
+        ctx.beginPath();
+        ctx.moveTo(d.ax, d.ay);
+        ctx.lineTo(d.x, d.y);
+        ctx.strokeStyle = 'rgba(4,6,11,0.85)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.strokeStyle = `#${c.toString(16).padStart(6, '0')}`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(d.ax, d.ay, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `#${c.toString(16).padStart(6, '0')}`;
+        ctx.fill();
+      }
       const text = data.label ? data.label[d.i] : String(Math.round(data.value[d.i]));
       ctx.beginPath();
       if (this.shape === 'tag') {

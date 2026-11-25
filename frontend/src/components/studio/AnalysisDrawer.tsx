@@ -1,25 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { laterHigherShare, monthDepartures, rankOf, valueOf, yearFacts } from '../../analysis/facts';
 import type { Region, Season } from '../../analysis/series';
-import { hasSeasons, regionBox, regionCentre, resolutionsFor } from '../../analysis/series';
-import { trendStats, verdict, yearsStillNeeded, type TrendStats } from '../../analysis/stats';
+import { countryRegion, hasSeasons, regionBox, regionCentre, resolutionsFor } from '../../analysis/series';
+import { trendStats, verdict, yearsStillNeeded, type Point, type TrendStats } from '../../analysis/stats';
 import type { Case } from '../../data/cases';
+import { cityPlace, cityRegion, findCities, fold, type WorldCity } from '../../data/cities';
+import { searchCities } from '../../data/city';
 import { aliasOptions, countryIndex, findCountry } from '../../data/countryNames';
 import { countryAt, countryName, loadCountries, type GeoCountry } from '../../data/geo';
-import { variableById, variables, type VariableId } from '../../data/variables';
+import type { LiveManifest } from '../../data/live';
+import { variableById, variables, type Variable, type VariableId } from '../../data/variables';
 import type { AnalysisState, RegionResult } from '../../hooks/useAnalysis';
 import { useI18n } from '../../i18n/I18n';
 import { digitsFor, formatP, numberFormat, regionName } from '../../i18n/format';
-import { useStudio } from '../../i18n/useStudio';
-import type { ChartView, PickMode, Slot } from '../../state/explore';
 import { useLiveText } from '../../i18n/live';
+import { usePlacesText } from '../../i18n/places';
+import { useStudio } from '../../i18n/useStudio';
+import { MAX_YEARS, type ChartView, type PickMode, type Slot, type YearMode } from '../../state/explore';
 import { Chart, type ChartHandle, type ChartMark } from '../Chart';
-import { StatCard, type StatRange } from '../ui/StatCard';
 import { SeasonChart } from '../SeasonChart';
+import { StatCard, type StatRange } from '../ui/StatCard';
 import { Icon } from './Icon';
 import { Methods } from './Methods';
 import { PlaceCompare } from './PlaceCompare';
-import type { LiveManifest } from '../../data/live';
-import { usePlacesText } from '../../i18n/places';
 
 type Props = {
   chartVariable: VariableId;
@@ -31,6 +34,11 @@ type Props = {
   season: Season;
   from: number;
   to: number;
+  /** The years the chart variable has: the choices for the period and the years. */
+  yearRange: [number, number];
+  yearMode: YearMode;
+  /** Years picked one by one (year mode). */
+  years: number[];
   chartView: ChartView;
   activeCase: Case | null;
   analysis: AnalysisState;
@@ -40,22 +48,30 @@ type Props = {
   mapYear: number | null;
   /** The globe click hit the sea while picking a country. */
   missedCountry: boolean;
+  /** Cities for the place box (Natural Earth), once loaded. */
+  cities: WorldCity[] | null;
   onPickYear: (year: number, month?: number) => void;
   onClose: () => void;
   onChartVariable: (id: VariableId) => void;
   onPick: (slot: Slot | null) => void;
   onPickMode: (mode: PickMode) => void;
-  onCountry: (slot: Slot, country: GeoCountry) => void;
+  /** A country or a city typed into the place box. */
+  onPlace: (slot: Slot, region: Region) => void;
   onRemoveB: () => void;
   onRadius: (km: number) => void;
   onSeason: (season: Season) => void;
   onChartView: (view: ChartView) => void;
+  onYearMode: (mode: YearMode) => void;
+  onToggleYear: (year: number) => void;
+  onPeriod: (from: number, to: number) => void;
+  /** The years on the globe's shutter (left, right), when it is on. */
+  shutter: [number, number] | null;
   /** For the comparison of two places by everything. */
   manifest: LiveManifest | null;
 };
 
 const RADII = [0, 250, 500, 1000];
-/** Years the trend is carried on after the period. */
+/** Years the trend is carried on after the period, when asked for. */
 const AHEAD = 10;
 const SEASONS: Season[] = ['year', 'djf', 'mam', 'jja', 'son'];
 const MIN_W = 340;
@@ -68,7 +84,14 @@ function download(name: string, blob: Blob) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-/** The right-hand drawer: chart, significance light, plain-language reading, and how it is computed. */
+/** Number formats that suit the values on screen: one decimal from 1 up, whole numbers from 100. */
+function formats(lang: 'uk' | 'en', values: number[]) {
+  const big = Math.max(0, ...values.filter(Number.isFinite).map(Math.abs));
+  const digits = big >= 100 ? 0 : big >= 1 ? 1 : Math.min(2, digitsFor(big || 0.1));
+  return { plain: numberFormat(lang, digits, false), signed: numberFormat(lang, digits) };
+}
+
+/** The right-hand drawer: places, years, the plain answer from the measured values, the chart and how it is computed. */
 export function AnalysisDrawer(p: Props) {
   const { lang } = useI18n();
   const s = useStudio();
@@ -76,15 +99,9 @@ export function AnalysisDrawer(p: Props) {
   const chartRef = useRef<ChartHandle>(null);
   const [tab, setTab] = useState<'result' | 'places' | 'methods'>('result');
   const placesText = usePlacesText().compare;
-  // A city picked from the Cities layer or the search opens the comparison by everything.
-  const cityKey = [p.regionA, p.regionB].map((r) => (r?.kind === 'point' && r.city ? `${r.lat},${r.lon}` : '')).join('|');
-  const [cityTabFor, setCityTabFor] = useState('');
-  if (cityKey !== cityTabFor) {
-    setCityTabFor(cityKey);
-    if (cityKey !== '|') setTab('places');
-  }
   const [seasonSlot, setSeasonSlot] = useState<'A' | 'B'>('A');
   const [width, setWidth] = useState<number | null>(null);
+  const [ahead, setAhead] = useState(false);
   const [geo, setGeo] = useState<GeoCountry[]>([]);
   const variable = variableById[p.chartVariable];
   const numeric = variables.filter((v) => v.series);
@@ -96,9 +113,6 @@ export function AnalysisDrawer(p: Props) {
       .then((m) => setGeo([...m.values()]))
       .catch(() => setGeo([]));
   }, []);
-  // Countries by any name people type: "США", "Америка", "UK", the official name, the code.
-  const countryList = useMemo(() => countryIndex(geo, (c) => c.code, lang, (c) => [c.uk, c.en]), [geo, lang]);
-  const aliasList = useMemo(() => aliasOptions(countryList, lang), [countryList, lang]);
 
   const results = p.analysis.results;
   const first = results.find((r) => r.series);
@@ -121,7 +135,7 @@ export function AnalysisDrawer(p: Props) {
   const largestRate = Math.max(0, ...results.map((r) => (r.stats ? Math.abs(r.stats.sen * 10) : 0)));
   const fmtRate = numberFormat(lang, Math.min(3, Math.max(1, digitsFor(largestRate || 0.1))));
 
-  // The yearly tiles always use the yearly values.
+  // The plain answer always uses the yearly values inside the period.
   const annual = useMemo<RegionResult[]>(
     () =>
       results.map((r) => {
@@ -135,20 +149,23 @@ export function AnalysisDrawer(p: Props) {
   const cycle = view === 'cycle' && withMonths.length > 0;
   const seasonResult = withMonths.find((r) => r.slot === seasonSlot) ?? withMonths[0];
   const monthUnit = seasonResult?.series?.monthUnit?.[lang] ?? variable.unit[lang];
-  const anyWeak = results.some((r) => r.stats && verdict(r.stats) !== 'significant');
+  const anySignificant = results.some((r) => r.stats && verdict(r.stats) === 'significant');
   const views: ChartView[] = [...resolutionsFor(variable), ...(withMonths.length || resolutionsFor(variable).includes('month') ? (['cycle'] as const) : [])];
+  const showAhead = ahead && anySignificant;
 
   const title = cycle && seasonResult ? `${variable.name[lang]}, ${regionName(seasonResult.region, lang)}, ${a.views.cycle.toLowerCase()} ${p.from}-${p.to}` : `${variable.name[lang]}, ${p.from}-${p.to}`;
   const isPicked = (r: Region | null) => !!r && r.kind === 'point' && !r.name;
   const showRadius = p.pickMode === 'point' && (!p.regionA || isPicked(p.regionA) || isPicked(p.regionB));
   const fileBase = `${p.chartVariable}-${p.from}-${p.to}${view !== 'year' ? `-${view}` : ''}`;
+  const pointCell = p.chartVariable === 'gistemp' && [p.regionA, p.regionB].some((r) => r?.kind === 'point');
 
+  // "Changes N times as fast" only means something when both changes are real.
   const comparison = (() => {
-    const [ra, rb] = results;
-    if (!ra?.stats || !rb?.stats) return null;
+    const [ra, rb] = annual;
+    if (!ra?.stats || !rb?.stats || verdict(ra.stats) !== 'significant' || verdict(rb.stats) !== 'significant') return null;
     const na = regionName(ra.region, lang);
     const nb = regionName(rb.region, lang);
-    if (Math.sign(ra.stats.sen) !== Math.sign(rb.stats.sen) && ra.stats.sen !== 0 && rb.stats.sen !== 0) return a.opposite(na, nb);
+    if (Math.sign(ra.stats.sen) !== Math.sign(rb.stats.sen)) return a.opposite(na, nb);
     const [fast, slow, nf, ns] = Math.abs(ra.stats.sen) >= Math.abs(rb.stats.sen) ? [ra.stats, rb.stats, na, nb] : [rb.stats, ra.stats, nb, na];
     if (Math.abs(slow.sen) < 1e-9) return null;
     const k = Math.abs(fast.sen / slow.sen);
@@ -175,6 +192,7 @@ export function AnalysisDrawer(p: Props) {
     target.addEventListener('pointerup', up);
   };
 
+  const ready = p.analysis.status === 'ready';
   return (
     <aside className="drawer" id="analysis-drawer" aria-label={a.title} style={width ? { width } : undefined}>
       <div
@@ -221,7 +239,6 @@ export function AnalysisDrawer(p: Props) {
         <div className="regions">
           {(['A', 'B'] as Slot[]).map((slot) => {
             const region = slot === 'A' ? p.regionA : p.regionB;
-            const listId = `countries-${slot}`;
             return (
               <div key={slot} className={`region region--${slot.toLowerCase()}`}>
                 <div className="region__row">
@@ -249,40 +266,7 @@ export function AnalysisDrawer(p: Props) {
                     </button>
                   )}
                 </div>
-                <label className="visually-hidden" htmlFor={`country-input-${slot}`}>
-                  {a.countryFor(slot)}
-                </label>
-                <input
-                  id={`country-input-${slot}`}
-                  className="field__input region__country"
-                  list={listId}
-                  placeholder={a.countryPlaceholder}
-                  autoComplete="off"
-                  key={region?.kind === 'country' ? `${region.code}-${lang}` : 'none'}
-                  defaultValue={region?.kind === 'country' ? countryName(region.code, lang, region.name) : ''}
-                  onChange={(e) => {
-                    // A whole name or an everyday one ("США") picks the country at once.
-                    const hit = findCountry(countryList, e.target.value, true);
-                    if (hit) p.onCountry(slot, hit.item);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return;
-                    // Enter takes the best match for the start of a name ("Амер" finds the USA).
-                    const hit = findCountry(countryList, e.currentTarget.value);
-                    if (hit) {
-                      e.currentTarget.value = hit.label;
-                      p.onCountry(slot, hit.item);
-                    }
-                  }}
-                />
-                <datalist id={listId}>
-                  {countryList.map((o) => (
-                    <option key={o.code} value={o.label} />
-                  ))}
-                  {aliasList.map((o) => (
-                    <option key={`${o.value}-${o.label}`} value={o.value} label={o.label} />
-                  ))}
-                </datalist>
+                <PlaceBox key={`${slot}-${region ? regionName(region, lang) : ''}-${lang}`} slot={slot} region={region} geo={geo} cities={p.cities} onPlace={p.onPlace} />
               </div>
             );
           })}
@@ -308,6 +292,30 @@ export function AnalysisDrawer(p: Props) {
           )}
         </div>
 
+        <section className="drawer__what">
+          <label className="field">
+            <span className="field__label">{a.variable}</span>
+            <select className="field__input" value={p.chartVariable} onChange={(e) => p.onChartVariable(e.target.value as VariableId)}>
+              {numeric.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name[lang]} ({v.source[lang]})
+                </option>
+              ))}
+            </select>
+          </label>
+          {variable.plain && <p className="note">{a.means(variable.plain[lang])}</p>}
+          <YearsPicker
+            mode={p.yearMode}
+            years={p.years}
+            from={p.from}
+            to={p.to}
+            range={p.yearRange}
+            onMode={p.onYearMode}
+            onToggle={p.onToggleYear}
+            onPeriod={p.onPeriod}
+          />
+        </section>
+
         {p.regionA && (
           <div className="seg drawer__tabs" role="tablist" aria-label={a.title}>
             {(['result', 'places', 'methods'] as const).map((id) => (
@@ -323,10 +331,9 @@ export function AnalysisDrawer(p: Props) {
 
         {p.regionA && tab === 'result' && (
           <>
-            <p className="note">{a.period(p.from, p.to)}</p>
             {p.analysis.status === 'loading' && (
               <p className="note" role="status">
-                {view === 'day' ? a.dayLoading : a.loading}
+                {view === 'day' && p.yearMode === 'period' ? a.dayLoading : a.loading}
               </p>
             )}
             {p.analysis.status === 'error' && p.analysis.coverage && (
@@ -342,13 +349,20 @@ export function AnalysisDrawer(p: Props) {
                 </button>
               </p>
             )}
-            {p.analysis.status === 'ready' && (
+            {ready && variable.seriesNote && <p className="note note--source">{variable.seriesNote[lang]}</p>}
+            {ready && p.analysis.fallback && <p className="note note--source">{p.analysis.fallback[lang]}</p>}
+            {ready && pointCell && <p className="note note--source">{a.cellNote}</p>}
+
+            {ready && hasSeasons(variable) && p.season !== 'year' && <p className="note note--source">{a.seasonOnly(a.seasons[p.season].toLowerCase())}</p>}
+            {ready && p.yearMode === 'years' && (
+              <YearsResult results={results} years={p.years} variable={variable} onPickYear={p.onPickYear} shutter={p.shutter} />
+            )}
+
+            {ready && p.yearMode === 'period' && (
               <>
-                {p.analysis.fallback && <p className="note note--source">{p.analysis.fallback[lang]}</p>}
-                <AnalysisStat results={annual} from={p.from} to={p.to} unit={variable.unit[lang]} name={variable.name[lang]} />
-                <Summary results={results} from={p.from} to={p.to} unit={unit} variable={p.chartVariable} />
-                <Levels results={results} from={p.from} to={p.to} unit={unit} />
-                <Tiles results={annual} from={p.from} to={p.to} unit={variable.unit[lang]} />
+                <Summary results={annual} from={p.from} to={p.to} variable={variable} season={hasSeasons(variable) && p.season !== 'year' ? a.seasons[p.season].toLowerCase() : null} />
+                <AnalysisStat results={annual} unit={variable.unit[lang]} name={variable.name[lang]} />
+                <Levels results={annual} from={p.from} to={p.to} unit={variable.unit[lang]} />
 
                 {views.length > 1 && (
                   <div className="drawer__row drawer__row--views">
@@ -381,10 +395,11 @@ export function AnalysisDrawer(p: Props) {
                       to={p.to}
                       unit={monthUnit}
                       format={fmtValue}
-                      forecast
+                      forecast={showAhead}
+                      bounds={variable.bounds}
                       labels={{ months: a.monthsShort, mean: a.seasonMean, expected: a.seasonExpected, noData: a.noData, hint: a.seasonHint }}
                     />
-                    <p className="note">{a.seasonNote(p.to + 1)}</p>
+                    <p className="note">{showAhead ? a.seasonNote(p.to + 1) : a.seasonNotePlain}</p>
                   </>
                 ) : (
                   <>
@@ -396,7 +411,8 @@ export function AnalysisDrawer(p: Props) {
                       to={p.to}
                       resolution={view === 'cycle' ? 'year' : view}
                       format={fmtValue}
-                      forecast={AHEAD}
+                      forecast={showAhead ? AHEAD : 0}
+                      bounds={variable.bounds}
                       marks={p.marks}
                       mapYear={p.mapYear}
                       onPickYear={p.onPickYear}
@@ -412,9 +428,7 @@ export function AnalysisDrawer(p: Props) {
                       }}
                     />
                     {view === 'year' ? (
-                      <p className="note">
-                        {a.forecastNote(AHEAD)} {anyWeak && a.forecastWeak}
-                      </p>
+                      showAhead && <p className="note">{a.forecastNote(AHEAD)}</p>
                     ) : (
                       <p className="note">
                         {a.viewNotes[view === 'day' ? 'day' : 'month']}{' '}
@@ -423,12 +437,12 @@ export function AnalysisDrawer(p: Props) {
                         </button>
                       </p>
                     )}
-                    {p.marks.some((m) => m.year >= p.from && m.year <= p.to + AHEAD) && (
+                    {p.marks.some((m) => m.year >= p.from && m.year <= p.to + (showAhead ? AHEAD : 0)) && (
                       <section className="marks">
                         <h4 className="marks__title">{a.marksTitle}</h4>
                         <ul className="marks__list">
                           {p.marks
-                            .filter((m) => m.year >= p.from && m.year <= p.to + AHEAD)
+                            .filter((m) => m.year >= p.from && m.year <= p.to + (showAhead ? AHEAD : 0))
                             .map((m) => (
                               <li key={`${m.year}-${m.label}`}>
                                 <strong>{m.year}</strong> {m.detail}{' '}
@@ -444,12 +458,19 @@ export function AnalysisDrawer(p: Props) {
                     )}
                   </>
                 )}
+                {(view === 'year' || cycle) && anySignificant && (
+                  <label className="check drawer__ahead">
+                    <input type="checkbox" checked={ahead} onChange={(e) => setAhead(e.target.checked)} />
+                    <span>{a.aheadToggle(cycle ? 1 : AHEAD)}</span>
+                  </label>
+                )}
                 {results.map((r) => (
                   <Verdict
                     key={r.slot}
                     slot={r.slot}
                     name={regionName(r.region, lang)}
                     stats={r.stats}
+                    unit={unit}
                     perDecade={perDecade}
                     fmtRate={fmtRate}
                     onWhy={() => openMethod('m-mk')}
@@ -480,6 +501,10 @@ export function AnalysisDrawer(p: Props) {
                     {a.png}
                   </button>
                 </div>
+              </>
+            )}
+            {ready && (
+              <>
                 <details className="method">
                   <summary>{a.method}</summary>
                   {results.map((r) => r.series && <p key={r.slot}>{`${r.slot}: ${(view === 'day' && r.daily ? r.daily.method : r.series.method)[lang]}`}</p>)}
@@ -495,17 +520,6 @@ export function AnalysisDrawer(p: Props) {
           </>
         )}
         <section className="drawer__settings">
-          <label className="field">
-            <span className="field__label">{a.variable}</span>
-            <select className="field__input" value={p.chartVariable} onChange={(e) => p.onChartVariable(e.target.value as VariableId)}>
-              {numeric.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name[lang]} ({v.source[lang]})
-                </option>
-              ))}
-            </select>
-          </label>
-
           <div className="drawer__row">
             {showRadius && (
               <label className="field field--inline">
@@ -538,10 +552,505 @@ export function AnalysisDrawer(p: Props) {
   );
 }
 
+/**
+ * The place box under A and B: a country or a city by name. A country by any name people type
+ * ("США", "Америка", the code); a city from the list (Natural Earth), or any smaller place the
+ * geocoder knows (GeoNames through Open-Meteo).
+ */
+function PlaceBox({ slot, region, geo, cities, onPlace }: { slot: Slot; region: Region | null; geo: GeoCountry[]; cities: WorldCity[] | null; onPlace: (slot: Slot, region: Region) => void }) {
+  const { lang } = useI18n();
+  const a = useStudio().analysis;
+  const [value, setValue] = useState(region ? regionName(region, lang) : '');
+  const [state, setState] = useState<'idle' | 'busy' | 'missing'>('idle');
+  const countryList = useMemo(() => countryIndex(geo, (c) => c.code, lang, (c) => [c.uk, c.en]), [geo, lang]);
+  const aliasList = useMemo(() => aliasOptions(countryList, lang), [countryList, lang]);
+  const all = useMemo(() => cities ?? [], [cities]);
+  // Suggestions: cities of 300 000 people and more, and every Ukrainian one.
+  const cityOptions = useMemo(
+    () =>
+      all
+        .filter((c) => c.pop >= 300_000 || c.code === 'UA')
+        .map((c) => ({ c, label: c.code ? `${c[lang]}, ${countryName(c.code, lang)}` : c[lang] })),
+    [all, lang],
+  );
+  const listId = `places-${slot}`;
+
+  const takeCity = (c: WorldCity) => {
+    setState('idle');
+    onPlace(slot, cityRegion(cityPlace(c)));
+  };
+  const takeCountry = (c: GeoCountry) => {
+    setState('idle');
+    onPlace(slot, countryRegion(c));
+  };
+
+  /** A whole name picked from the list: taken at once. */
+  const exact = (q: string): boolean => {
+    const country = findCountry(countryList, q, true);
+    if (country && (country.label === q || aliasList.some((x) => x.value === q))) {
+      takeCountry(country.item);
+      return true;
+    }
+    const option = cityOptions.find((o) => o.label === q);
+    if (option) {
+      takeCity(option.c);
+      return true;
+    }
+    return false;
+  };
+
+  const go = async (query: string) => {
+    const q = query.trim();
+    if (!q) return;
+    const country = findCountry(countryList, q, true);
+    if (country) return takeCountry(country.item);
+    if (exact(q)) return;
+    // "Kharkiv" or "Kharkiv, Ukraine".
+    const [name, where] = q.split(',').map((x) => x.trim());
+    const list = findCities(all, name, 40);
+    const inCountry = where ? list.filter((c) => c.code && fold(countryName(c.code, lang)).startsWith(fold(where))) : list;
+    const city = inCountry[0] ?? list[0] ?? null;
+    const loose = findCountry(countryList, q);
+    // A city whose name starts with what was typed wins over a country that only contains it.
+    if (city && (!loose || fold(city[lang]).startsWith(fold(name)))) return takeCity(city);
+    if (loose) return takeCountry(loose.item);
+    // Smaller places: the geocoder.
+    setState('busy');
+    try {
+      const [hit] = await searchCities(q, lang);
+      if (!hit) return setState('missing');
+      setState('idle');
+      onPlace(slot, cityRegion({ name: { uk: hit.name, en: hit.name }, lat: hit.lat, lon: hit.lon, code: hit.cc?.toUpperCase(), pop: hit.population }));
+    } catch {
+      setState('missing');
+    }
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void go(value);
+  };
+
+  return (
+    <form className="place-box" onSubmit={onSubmit}>
+      <label className="visually-hidden" htmlFor={`place-input-${slot}`}>
+        {a.placeFor(slot)}
+      </label>
+      <input
+        id={`place-input-${slot}`}
+        className="field__input region__country"
+        list={listId}
+        placeholder={a.placePlaceholder}
+        autoComplete="off"
+        value={value}
+        aria-invalid={state === 'missing' || undefined}
+        aria-busy={state === 'busy' || undefined}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setState('idle');
+          exact(e.target.value);
+        }}
+      />
+      <button type="submit" className="chip-btn place-box__go" disabled={state === 'busy'} aria-label={a.placeGo}>
+        <Icon name="search" size={16} />
+      </button>
+      <datalist id={listId}>
+        {countryList.map((o) => (
+          <option key={o.code} value={o.label} />
+        ))}
+        {aliasList.map((o) => (
+          <option key={`${o.value}-${o.label}`} value={o.value} label={o.label} />
+        ))}
+        {cityOptions.map((o) => (
+          <option key={`c${o.c.id}`} value={o.label} />
+        ))}
+      </datalist>
+      {state === 'missing' && (
+        <p className="note place-box__error" role="status">
+          {a.placeMissing}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/** A period from-to, or years picked one by one. */
+function YearsPicker({
+  mode,
+  years,
+  from,
+  to,
+  range,
+  onMode,
+  onToggle,
+  onPeriod,
+}: {
+  mode: YearMode;
+  years: number[];
+  from: number;
+  to: number;
+  range: [number, number];
+  onMode: (mode: YearMode) => void;
+  onToggle: (year: number) => void;
+  onPeriod: (from: number, to: number) => void;
+}) {
+  const t = useStudio().analysis.yearsPick;
+  const [min, max] = range;
+  const all: number[] = [];
+  for (let y = min; y <= max; y++) all.push(y);
+  // Shortcuts that fit the years this variable has.
+  const quick: [string, number][] = [
+    ...([10, 30] as const).filter((n) => max - n + 1 > min).map((n): [string, number] => [t.last(n), max - n + 1]),
+    [t.all, min],
+  ];
+  return (
+    <div className="years-pick">
+      <div className="seg" role="group" aria-label={t.label}>
+        {(['period', 'years'] as YearMode[]).map((m) => (
+          <button key={m} type="button" className="seg__btn" aria-pressed={mode === m} onClick={() => onMode(m)}>
+            {t.modes[m]}
+          </button>
+        ))}
+      </div>
+      {mode === 'period' ? (
+        <>
+          <div className="years-pick__row">
+            <label className="field field--inline">
+              <span className="field__label">{t.from}</span>
+              <select className="field__input" value={from} onChange={(e) => onPeriod(Number(e.target.value), Math.max(to, Number(e.target.value) + 1))}>
+                {all
+                  .filter((y) => y < max)
+                  .map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field field--inline">
+              <span className="field__label">{t.to}</span>
+              <select className="field__input" value={to} onChange={(e) => onPeriod(Math.min(from, Number(e.target.value) - 1), Number(e.target.value))}>
+                {all
+                  .filter((y) => y > min)
+                  .map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+          <div className="years-pick__row">
+            {quick.map(([label, start]) => (
+              <button key={label} type="button" className="chip-btn" aria-pressed={from === start && to === max} onClick={() => onPeriod(start, max)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="note">{t.periodNote}</p>
+        </>
+      ) : (
+        <>
+          <div className="years-pick__row years-pick__chips">
+            {years.map((y, i) => (
+              <button
+                key={y}
+                type="button"
+                className="chip-btn years-pick__chip"
+                style={{ ['--pick' as string]: `var(--color-pick-${(i % 6) + 1})` }}
+                aria-label={t.remove(y)}
+                disabled={years.length === 1}
+                onClick={() => onToggle(y)}
+              >
+                <span className="years-pick__dot" aria-hidden="true" />
+                {y}
+                {years.length > 1 && <Icon name="close" size={14} />}
+              </button>
+            ))}
+            {years.length < MAX_YEARS && (
+              <label className="field field--inline">
+                <span className="visually-hidden">{t.add}</span>
+                <select className="field__input" value="" onChange={(e) => e.target.value && onToggle(Number(e.target.value))}>
+                  <option value="">{t.add}</option>
+                  {[...all]
+                    .reverse()
+                    .filter((y) => !years.includes(y))
+                    .map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <p className="note">{t.yearsNote(MAX_YEARS)}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Words for a difference: "на 1,2 °C тепліше", "на 12% менше", or "майже так само". */
+function useDiffWords(variable: Variable) {
+  const { lang } = useI18n();
+  const a = useStudio().analysis;
+  return (diff: number, scale: number, fmt: (v: number) => string, pct: number | null = null) => {
+    if (!Number.isFinite(diff)) return a.noData;
+    // Within 1% of the usual spread of the values: no real difference.
+    if (Math.abs(diff) <= Math.max(1e-9, Math.abs(scale) * 0.01)) return a.same;
+    const words = variable.more ?? { up: { uk: 'більше', en: 'more' }, down: { uk: 'менше', en: 'less' } };
+    const word = (diff > 0 ? words.up : words.down)[lang];
+    const share = pct !== null && Number.isFinite(pct) && Math.abs(pct) >= 1 ? ` (${numberFormat(lang, 0)(pct)}%)` : '';
+    return a.by(`${fmt(Math.abs(diff))} ${variable.unit[lang]}`, word) + share;
+  };
+}
+
+/**
+ * The plain answer for a period, from the measured values only: the first and the last year,
+ * the highest and the lowest, the usual year, and then whether the change is steady.
+ */
+function Summary({ results, from, to, variable, season }: { results: RegionResult[]; from: number; to: number; variable: Variable; season: string | null }) {
+  const { lang } = useI18n();
+  const a = useStudio().analysis;
+  const diffWords = useDiffWords(variable);
+  const unit = variable.unit[lang];
+  const blocks = results
+    .filter((r) => r.series)
+    .map((r) => {
+      const name = regionName(r.region, lang);
+      const f = yearFacts(r.points, variable.ratio);
+      if (!f) return { slot: r.slot, name, lines: [a.summary.none(from, to)] };
+      const { plain, signed } = formats(lang, [f.max.y, f.min.y, f.mean]);
+      const v = (q: number) => `${(variable.id === 'gistemp' ? signed : plain)(q)} ${unit}`;
+      const lines = [
+        a.summary.firstLast(f.first.x, (variable.id === 'gistemp' ? signed : plain)(f.first.y), f.last.x, v(f.last.y), diffWords(f.diff, f.max.y - f.min.y, plain, f.pct)),
+        a.summary.extremes(f.max.x, v(f.max.y), f.min.x, v(f.min.y), v(f.mean)),
+      ];
+      const k = verdict(r.stats);
+      if (k === 'significant' && r.stats) {
+        const share = laterHigherShare(r.stats);
+        const rate = r.stats.sen * 10;
+        lines.push(a.summary.steady(rate > 0, `${formats(lang, [rate]).plain(Math.abs(rate))} ${unit}`, share === null ? null : Math.round(share * 100)));
+      } else if (k === 'weak') lines.push(a.summary.unsteady(f.first.x, f.last.x));
+      else lines.push(a.summary.few(f.n));
+      return { slot: r.slot, name, lines };
+    });
+  if (!blocks.length) return null;
+  return (
+    <section className="summary" aria-label={a.summary.title}>
+      <h3 className="summary__title">{a.summary.title}</h3>
+      {blocks.map((b) => (
+        <div key={b.slot} className="summary__block">
+          <p className="summary__line">
+            <span className={`tile__slot tile__slot--${b.slot.toLowerCase()}`} aria-hidden="true">
+              {b.slot}
+            </span>
+            <strong>
+              {b.name}, {from}–{to}
+              {season && `, ${season}`}
+            </strong>
+          </p>
+          <ul className="summary__list">
+            {b.lines.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** Years picked one by one: each against the usual year, against each other, and month by month. */
+function YearsResult({
+  results,
+  years,
+  variable,
+  onPickYear,
+  shutter,
+}: {
+  results: RegionResult[];
+  years: number[];
+  variable: Variable;
+  onPickYear: (year: number) => void;
+  shutter: [number, number] | null;
+}) {
+  const { lang } = useI18n();
+  const a = useStudio().analysis;
+  const t = a.yearsPick;
+  const diffWords = useDiffWords(variable);
+  const unit = variable.unit[lang];
+  const rows = results.filter((r) => r.series);
+  if (!rows.length || !years.length) return null;
+  const anomaly = variable.id === 'gistemp';
+
+  const sides = rows.map((r) => {
+    const pts = r.series!.points.filter((q) => Number.isFinite(q.y));
+    const f = yearFacts(pts, variable.ratio);
+    // GISTEMP values are already departures from 1951-1980: that is the usual value.
+    const usual = anomaly ? 0 : (f?.mean ?? NaN);
+    return { r, pts, f, usual };
+  });
+  const all = sides.flatMap((x) => [...years.map((y) => valueOf(x.pts, y)), x.usual]).filter(Number.isFinite);
+  const { plain, signed } = formats(lang, all);
+  const v = (q: number) => (Number.isFinite(q) ? `${(anomaly ? signed : plain)(q)} ${unit}` : a.noData);
+  const usualLabel = (x: (typeof sides)[number]) => (anomaly ? t.norm : x.f ? t.usual(x.f.first.x, x.f.last.x) : t.usualShort);
+  const maxAbs = Math.max(1e-9, ...all.map(Math.abs));
+
+  const lines: string[] = [];
+  for (const x of sides) {
+    const name = regionName(x.r.region, lang);
+    const spread = x.f ? x.f.max.y - x.f.min.y : 0;
+    for (const y of years) {
+      const val = valueOf(x.pts, y);
+      if (!Number.isFinite(val)) {
+        lines.push(t.noYear(name, y));
+        continue;
+      }
+      const rank = rankOf(x.pts, y);
+      const place = rank ? (rank.high <= rank.low ? t.rankHigh(rank.high, rank.of) : t.rankLow(rank.low, rank.of)) : '';
+      lines.push(t.yearLine(rows.length > 1 ? name : '', y, v(val), diffWords(val - x.usual, spread, plain), usualLabel(x), place));
+    }
+    if (years.length > 1) {
+      const y0 = years[0];
+      const y1 = years[years.length - 1];
+      const v0 = valueOf(x.pts, y0);
+      const v1 = valueOf(x.pts, y1);
+      if (Number.isFinite(v0) && Number.isFinite(v1)) {
+        const pct = variable.ratio && v0 > 0 ? ((v1 - v0) / v0) * 100 : null;
+        lines.push(t.between(rows.length > 1 ? name : '', y0, y1, diffWords(v1 - v0, spread, plain, pct)));
+      }
+    }
+  }
+  if (sides.length === 2) {
+    const up = (variable.more ?? { up: { uk: 'більше', en: 'more' } }).up[lang];
+    for (const y of years) {
+      const va = valueOf(sides[0].pts, y);
+      const vb = valueOf(sides[1].pts, y);
+      if (!Number.isFinite(va) || !Number.isFinite(vb) || va === vb) continue;
+      const [hiS, loS] = va > vb ? [sides[0], sides[1]] : [sides[1], sides[0]];
+      lines.push(t.twoPlaces(y, regionName(hiS.r.region, lang), regionName(loS.r.region, lang), `${plain(Math.abs(va - vb))} ${unit}`, up));
+    }
+  }
+
+  // Months of each picked year against the usual month (region A).
+  const monthly = sides[0].r.series!.monthly;
+  const months = monthly
+    ? years.flatMap((y) => {
+        const d = monthDepartures(monthly, y)[0];
+        if (!d) return [];
+        const fm = formats(lang, [d.value, d.normal]).plain;
+        const word = diffWords(d.diff, Math.abs(d.normal) || 1, fm);
+        return [t.month(y, a.monthsLong[d.month], `${fm(d.value)} ${monthUnitOf(sides[0].r, lang, unit)}`, `${fm(d.normal)}`, word)];
+      })
+    : [];
+  const span = monthly ? [monthly[0].year, monthly[monthly.length - 1].year] : null;
+
+  return (
+    <section className="years-result" aria-label={t.title}>
+      <h3 className="summary__title">{t.title}</h3>
+      <table className="years-table">
+        <thead>
+          <tr>
+            <th scope="col">{t.year}</th>
+            {sides.map((x) => (
+              <th key={x.r.slot} scope="col">
+                <span className={`tile__slot tile__slot--${x.r.slot.toLowerCase()}`}>{x.r.slot}</span> {regionName(x.r.region, lang)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {years.map((y, i) => (
+            <tr key={y}>
+              <th scope="row">
+                <button type="button" className="text-btn years-table__year" title={t.onGlobe} onClick={() => onPickYear(y)}>
+                  <span className="years-pick__dot" style={{ ['--pick' as string]: `var(--color-pick-${(i % 6) + 1})` }} aria-hidden="true" />
+                  {y}
+                </button>
+              </th>
+              {sides.map((x) => {
+                const val = valueOf(x.pts, y);
+                return (
+                  <td key={x.r.slot}>
+                    <strong>{v(val)}</strong>
+                    {Number.isFinite(val) && <Bar value={val} max={maxAbs} usual={x.usual} slot={x.r.slot} />}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          <tr className="years-table__usual">
+            <th scope="row">{anomaly ? t.normShort : t.usualShort}</th>
+            {sides.map((x) => (
+              <td key={x.r.slot}>
+                {v(x.usual)}
+                <small>{usualLabel(x)}</small>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+      <ul className="summary__list">
+        {lines.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+      {shutter && (
+        <p className="note years-result__shutter">
+          <Icon name="split" size={16} /> {t.shutter(shutter[0], shutter[1])}
+        </p>
+      )}
+      {monthly && span && (
+        <>
+          <h4 className="marks__title">{t.monthsTitle(regionName(sides[0].r.region, lang))}</h4>
+          <SeasonChart
+            rows={monthly}
+            slot={sides[0].r.slot}
+            from={span[0]}
+            to={span[1]}
+            years={years}
+            unit={monthUnitOf(sides[0].r, lang, unit)}
+            format={formats(lang, monthly.flatMap((r) => r.values)).plain}
+            forecast={false}
+            labels={{ months: a.monthsShort, mean: a.seasonMean, expected: a.seasonExpected, noData: a.noData, hint: a.seasonHint }}
+          />
+          {months.length > 0 && (
+            <ul className="summary__list">
+              {months.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function monthUnitOf(r: RegionResult, lang: 'uk' | 'en', fallback: string): string {
+  return r.series?.monthUnit?.[lang] ?? fallback;
+}
+
+/** A bar from zero for a year's value, with a tick where the usual year is. */
+function Bar({ value, max, usual, slot }: { value: number; max: number; usual: number; slot: 'A' | 'B' }) {
+  const w = (Math.abs(value) / max) * 100;
+  const u = Number.isFinite(usual) ? (Math.abs(usual) / max) * 100 : null;
+  return (
+    <span className={`years-bar years-bar--${slot.toLowerCase()}`} aria-hidden="true">
+      <span className="years-bar__fill" style={{ width: `${Math.max(2, w)}%` }} />
+      {u !== null && <span className="years-bar__usual" style={{ left: `${u}%` }} />}
+    </span>
+  );
+}
+
 function Verdict({
   slot,
   name,
   stats,
+  unit,
   perDecade,
   fmtRate,
   onWhy,
@@ -549,6 +1058,7 @@ function Verdict({
   slot: 'A' | 'B';
   name: string;
   stats: TrendStats | null;
+  unit: string;
   perDecade: string;
   fmtRate: (v: number) => string;
   onWhy: () => void;
@@ -570,10 +1080,10 @@ function Verdict({
         </button>
       </p>
       <p className="verdict__plain">{a.verdictPlain[v]}</p>
-      {stats && (
+      {stats && v === 'significant' && (
         <p className="verdict__rate">
           <span className="verdict__rate-label">{a.rateLabel}: </span>
-          {a.rate(fmtRate(stats.sen * 10), perDecade)}
+          {a.rate(fmtRate(stats.sen * 10), perDecade, fmtRate(stats.sen), unit)}
         </p>
       )}
       {v === 'insufficient' && still !== null && <p className="verdict__detail">{a.needMin(still)}</p>}
@@ -581,6 +1091,9 @@ function Verdict({
       {stats && (
         <details className="verdict__more">
           <summary>{a.expert}</summary>
+          <p className="verdict__detail">
+            {a.rateLabel}: {a.rate(fmtRate(stats.sen * 10), perDecade, fmtRate(stats.sen), unit)}
+          </p>
           <p className="verdict__detail">{a.ci(fmtRate(stats.senLow * 10), fmtRate(stats.senHigh * 10))}</p>
           <p className="verdict__detail">
             {stats.seasonal ? a.testsSeasonal(formatP(stats.mkP, lang), formatP(stats.olsP, lang), stats.n, stats.years) : a.tests(formatP(stats.mkP, lang), formatP(stats.olsP, lang), stats.n)}
@@ -594,10 +1107,11 @@ function Verdict({
 }
 
 /**
- * Region A at a glance (Design Bookmark's Stat Card): the latest yearly value, the change along
- * the Theil-Sen trend, and the curve, for the last 10 or 30 years or the whole period.
+ * Region A at a glance (Design Bookmark's Stat Card): the latest yearly value, the measured
+ * difference from the first year of the range, and the curve, for the last 10 or 30 years or the
+ * whole period.
  */
-function AnalysisStat({ results, from, to, unit, name }: { results: AnalysisState['results']; from: number; to: number; unit: string; name: string }) {
+function AnalysisStat({ results, unit, name }: { results: RegionResult[]; unit: string; name: string }) {
   const { lang } = useI18n();
   const t = useLiveText().stat;
   const [range, setRange] = useState('all');
@@ -605,92 +1119,35 @@ function AnalysisStat({ results, from, to, unit, name }: { results: AnalysisStat
   const all = (a?.points ?? []).filter((q) => Number.isFinite(q.y));
   if (!a || all.length < 4) return null;
   const last = all[all.length - 1];
+  const starts: Record<string, Point> = {};
   const make = (id: string, label: string, years: number | null): StatRange | null => {
     const pts = years === null ? all : all.filter((q) => q.x > last.x - years);
-    if (pts.length < 4 || (years !== null && years >= to - from + 1)) return null;
-    const stats = trendStats(pts);
-    const delta = stats ? stats.sen * (pts[pts.length - 1].x - pts[0].x) : null;
-    return { id, label, value: last.y, delta, points: pts.map((q) => q.y) };
+    if (pts.length < 4 || (years !== null && pts.length >= all.length)) return null;
+    starts[id] = pts[0];
+    return { id, label, value: last.y, delta: last.y - pts[0].y, points: pts.map((q) => q.y) };
   };
-  const ranges = [make('r10', t.ranges.r10, 10), make('r30', t.ranges.r30, 30), make('all', `${t.ranges.all} ${from}-${to}`, null)].filter((r): r is StatRange => r !== null);
+  const ranges = [make('r10', t.ranges.r10, 10), make('r30', t.ranges.r30, 30), make('all', t.ranges.all, null)].filter((r): r is StatRange => r !== null);
+  const active = ranges.some((r) => r.id === range) ? range : ranges[ranges.length - 1].id;
   const values = all.map((q) => Math.abs(q.y));
   const digits = Math.min(2, digitsFor(Math.max(...values) || 0.1));
   const plain = numberFormat(lang, digits, false);
-  const signed = numberFormat(lang, Math.max(1, digits));
+  const signed = numberFormat(lang, Math.max(digits, 0));
   return (
     <StatCard
       label={`${name} · ${regionName(a.region, lang)}`}
       ranges={ranges}
-      active={ranges.some((r) => r.id === range) ? range : ranges[ranges.length - 1].id}
+      active={active}
       onRange={setRange}
       format={(v) => `${plain(v)} ${unit}`}
       formatDelta={(v) => `${signed(v)} ${unit}`}
       tone={(d) => (d === null || Math.abs(d) < 1e-9 ? 'flat' : d > 0 ? 'up' : 'down')}
-      caption={t.caption(last.x)}
+      caption={t.caption(last.x, starts[active]?.x ?? last.x)}
     />
   );
 }
 
-/** What changed and how much, at a glance: change along the trend, the extreme year, the latest year. */
-function Tiles({ results, from, to, unit }: { results: AnalysisState['results']; from: number; to: number; unit: string }) {
-  const { lang } = useI18n();
-  const t = useStudio().analysis.tiles;
-  const rows = results
-    .filter((r) => r.series && r.stats)
-    .map((r) => {
-      const pts = r.points.filter((q) => Number.isFinite(q.y));
-      const stats = r.stats!;
-      const up = stats.sen >= 0;
-      const extreme = pts.reduce((best, q) => ((up ? q.y > best.y : q.y < best.y) ? q : best), pts[0]);
-      const last = pts[pts.length - 1];
-      const mean = pts.reduce((acc, q) => acc + q.y, 0) / pts.length;
-      return { slot: r.slot, change: stats.sen * (to - from), extreme, up, last, lastDiff: last ? last.y - mean : NaN };
-    })
-    .filter((r) => r.last);
-  if (!rows.length) return null;
-  const big = Math.max(...rows.map((r) => Math.abs(r.change)), ...rows.map((r) => Math.abs(r.lastDiff)));
-  const signed = numberFormat(lang, Math.min(3, digitsFor(big || 0.1)));
-  const plain = numberFormat(lang, Math.min(3, digitsFor(Math.max(...rows.map((r) => Math.abs(r.extreme.y))) || 0.1)), false);
-  const allUp = rows.every((r) => r.up);
-  const allDown = rows.every((r) => !r.up);
-  const slot = (id: 'A' | 'B') => rows.length > 1 && <span className={`tile__slot tile__slot--${id.toLowerCase()}`}>{id}</span>;
-  return (
-    <div className="tiles">
-      <section className="tile">
-        <h4 className="tile__label">{t.change}</h4>
-        {rows.map((r) => (
-          <p key={r.slot} className="tile__value">
-            {slot(r.slot)}
-            {signed(r.change)} <span className="tile__unit">{unit}</span>
-          </p>
-        ))}
-        <p className="tile__note">{t.changeNote(from, to)}</p>
-      </section>
-      <section className="tile">
-        <h4 className="tile__label">{allUp ? t.high : allDown ? t.low : `${t.high} / ${t.low}`}</h4>
-        {rows.map((r) => (
-          <p key={r.slot} className="tile__value">
-            {slot(r.slot)}
-            {r.extreme.x} <span className="tile__unit">{plain(r.extreme.y)} {unit}</span>
-          </p>
-        ))}
-      </section>
-      <section className="tile">
-        <h4 className="tile__label">{t.last}</h4>
-        {rows.map((r) => (
-          <p key={r.slot} className="tile__value">
-            {slot(r.slot)}
-            {signed(r.lastDiff)} <span className="tile__unit">{unit}</span>
-          </p>
-        ))}
-        <p className="tile__note">{t.lastNote(rows[0].last.x)}</p>
-      </section>
-    </div>
-  );
-}
-
 /** How the two regions differ on average over the period, in one plain sentence. */
-function Levels({ results, from, to, unit }: { results: AnalysisState['results']; from: number; to: number; unit: string }) {
+function Levels({ results, from, to, unit }: { results: RegionResult[]; from: number; to: number; unit: string }) {
   const { lang } = useI18n();
   const a = useStudio().analysis;
   const means = results.map((r) => {
@@ -707,37 +1164,6 @@ function Levels({ results, from, to, unit }: { results: AnalysisState['results']
       {a.levels(from, to, regionName(ma.r.region, lang), `${f(ma.mean)} ${unit}`, regionName(mb.r.region, lang), `${f(mb.mean)} ${unit}`)}{' '}
       {Math.abs(hi.mean - lo.mean) > 1e-9 && a.levelsDiff(regionName(hi.r.region, lang), `${f(hi.mean - lo.mean)} ${unit}`)}
     </p>
-  );
-}
-
-/** One plain sentence per region: what changed, by how much, and whether it is reliable. */
-function Summary({ results, from, to, unit, variable }: { results: AnalysisState['results']; from: number; to: number; unit: string; variable: VariableId }) {
-  const { lang } = useI18n();
-  const a = useStudio().analysis;
-  const words = variableById[variable].change;
-  const lines = results
-    .filter((r) => r.series)
-    .map((r) => {
-      const name = regionName(r.region, lang);
-      const v = verdict(r.stats);
-      if (v === 'insufficient' || !r.stats || !words) return { slot: r.slot, text: a.summary.insufficient(name) };
-      const change = r.stats.sen * (to - from);
-      const amount = `${numberFormat(lang, Math.min(3, digitsFor(Math.abs(change) || 0.1)), false)(Math.abs(change))} ${unit}`;
-      const phrase = (change >= 0 ? words.up : words.down)[lang];
-      return { slot: r.slot, text: a.summary[v](name, from, to, phrase, amount) };
-    });
-  if (!lines.length) return null;
-  return (
-    <section className="summary">
-      {lines.map((l) => (
-        <p key={l.slot} className="summary__line">
-          <span className={`tile__slot tile__slot--${l.slot.toLowerCase()}`} aria-hidden="true">
-            {l.slot}
-          </span>
-          {l.text}
-        </p>
-      ))}
-    </section>
   );
 }
 

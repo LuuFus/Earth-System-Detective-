@@ -61,7 +61,7 @@ export default function MyCity() {
     setPicking(false);
   };
   useEffect(() => {
-    document.title = city ? `${city.name} · Earth-System-Detective` : `${t.title} · Earth-System-Detective`;
+    document.title = city ? `${city.name} · Earth System Detective` : `${t.title} · Earth System Detective`;
   }, [city, t.title]);
 
   return (

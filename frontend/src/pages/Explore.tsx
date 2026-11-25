@@ -27,7 +27,6 @@ import { firesSource } from '../components/globe/mvt';
 import { daysSource, gapFilledSource, nativeSource, wmsSource, wmtsSource } from '../components/globe/tiles';
 import { AnalysisDrawer } from '../components/studio/AnalysisDrawer';
 import { HintCard, HintPreview } from '../components/studio/HintCard';
-import { Icon } from '../components/studio/Icon';
 import { AirCard } from '../components/studio/AirCard';
 import { RadCard } from '../components/studio/RadCard';
 import { isOldRad, loadRadiation, nearestRad, RAD_COLORS, radBand, radLabel, type RadStation } from '../data/radiation';
@@ -36,6 +35,7 @@ import { OccupationPlayer } from '../components/studio/OccupationPlayer';
 import { loadOccHistory, OccPainter, type OccHistory } from '../data/frontHistory';
 import { FiresPanel, MapControls, MapStyle, StoryPlayer, UkrainePanel, WeatherGlobeControls } from '../components/studio/LivePanels';
 import { EventsPanel, Flyout, GlossaryPanel, LayersPanel, SharePanel } from '../components/studio/Panels';
+import { OnNow, type OnItem } from '../components/studio/OnNow';
 import { Rail } from '../components/studio/Rail';
 import { Timeline } from '../components/studio/Timeline';
 import { WeatherPanel } from '../components/studio/WeatherPanel';
@@ -43,9 +43,9 @@ import { TopBar } from '../components/TopBar';
 import { cases, type Case } from '../data/cases';
 import { eventsFor } from '../data/events';
 import { countryAt, countryName, loadBorders, loadCountries, loadLabels, type GeoBorders, type GeoCountry, type GeoLabels } from '../data/geo';
-import { HINT_KINDS, hintById, hints, type Hint } from '../data/hints';
+import { HINT_KINDS, hintById, hints, whenText, type Hint } from '../data/hints';
 import { cellIndex } from '../data/gistemp';
-import { imageryDate, imageryYears, nearbyDates, variableById, type VariableId } from '../data/variables';
+import { imageryDate, imageryYears, nearbyDates, variableById, type Variable, type VariableId } from '../data/variables';
 import { isOld, mergeAir, type AirStation } from '../data/air';
 import { useWaqi, WAQI_TOKEN } from '../data/waqi';
 import { entryText, levelWord, loadColorMap, lookup, type ColorMap } from '../data/colormaps';
@@ -83,6 +83,8 @@ const GISTEMP_YEARS: [number, number] = [1880, 2025];
 const BLACKOUT_DATES: Record<number, string> = { 2021: '2021-10-03', 2022: '2022-11-25' };
 const UKRAINE_VIEW = { lat: 48.6, lon: 31.4, distance: 1.55 };
 const WMS_LEVEL: Record<string, number> = { '2km': 5, '1km': 6, '500m': 7, '250m': 8 };
+/** Narrower than this, a panel on the left and the analysis on the right leave too little globe. */
+const BOTH_PANELS_FROM = 1500;
 
 /** The 3D Earth studio: globe, tool rail, panels, analysis drawer and timeline. */
 /** A hotspot's name: its country, and the biggest town near it (or how far the nearest one is). */
@@ -108,6 +110,16 @@ export default function Explore() {
     return initial.caseToApply ? reducer(hydrated, { type: 'case', c: initial.caseToApply }) : hydrated;
   });
   const [view, setView] = useState<GlobeView | null>(initial.view);
+  // On a screen too narrow for both side panels with the globe between them, the one opened last
+  // stays and the other folds away (the rail opens it again).
+  const sides = useRef({ panel: state.panel, analysis: state.analysisOpen });
+  useEffect(() => {
+    const was = sides.current;
+    sides.current = { panel: state.panel, analysis: state.analysisOpen };
+    if (window.innerWidth >= BOTH_PANELS_FROM || !state.panel || !state.analysisOpen) return;
+    if (!was.analysis) dispatch({ type: 'panel', panel: null });
+    else if (state.panel !== was.panel) dispatch({ type: 'analysis', open: false });
+  }, [state.panel, state.analysisOpen]);
   const [hover, setHover] = useState<GlobePoint | null>(null);
   const onHover = useCallback((p: GlobePoint | null) => {
     setHover(p);
@@ -185,16 +197,17 @@ export default function Explore() {
   }, [initial]);
 
   // Map layers
-  const climate = useClimateLayer(state.variable === 'gistemp', state.gistempMode, state.year, state.from, state.to);
+  const climate = useClimateLayer(state.variable === 'gistemp' || state.extra.includes('gistemp'), state.gistempMode, state.year, state.from, state.to);
   // One map layer for a year: imagery from GIBS for that date.
-  const imageryFor = useCallback(
-    (year: number) => {
-      const img = variable?.imagery;
-      if (!img) return null;
+  const imageryOf = useCallback(
+    (layer: Variable | null, year: number) => {
+      const img = layer?.imagery;
+      if (!layer || !img) return null;
       // Daily layers use their own day of the year (ozone hole: 1 October); monthly ones follow the month picker.
       // An event can ask for its exact day; otherwise daily layers use their own day of the year.
       const exact = state.day && img.time === 'daily' && state.day.startsWith(String(year)) && state.day >= img.first && state.day <= img.last ? state.day : null;
-      const date = state.blackout && BLACKOUT_DATES[year] ? BLACKOUT_DATES[year] : exact ?? (img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month));
+      const date =
+        state.blackout && layer.id === 'nightlights' && BLACKOUT_DATES[year] ? BLACKOUT_DATES[year] : exact ?? (img.time === 'daily' ? imageryDate(img, year) : imageryDate(img, year, state.month));
       // Points are drawn by the server at a fixed size, so finer levels just make them sharper.
       const wmsLevel = img.points ? 10 : (WMS_LEVEL[img.matrixSet] ?? 6);
       let source =
@@ -212,10 +225,11 @@ export default function Explore() {
       if (img.fillDays) source = daysSource(source, nearbyDates(img, date, img.fillDays).map((d) => wmtsSource(img.layer, img.matrixSet, img.format, d)));
       // Coarse grids: one level stretched smoothly; land-only data grown a little so the coast cut is clean.
       if (img.native !== undefined) source = nativeSource(source, img.native, img.landOnly ? 3 : 0);
-      return { source, opacity: img.points || variable!.id === 'truecolor' ? 1 : 0.85, points: img.points, landOnly: img.landOnly };
+      return { source, opacity: img.points || layer.id === 'truecolor' ? 1 : 0.85, points: img.points, landOnly: img.landOnly };
     },
-    [variable, state.month, state.blackout, state.day],
+    [state.month, state.blackout, state.day],
   );
+  const imageryFor = useCallback((year: number) => imageryOf(variable, year), [imageryOf, variable]);
   const imagery = useMemo(() => imageryFor(state.year), [imageryFor, state.year]);
 
   // ---------- live layers ----------
@@ -578,15 +592,17 @@ export default function Explore() {
     [state.war, warCanvas, war.data],
   );
 
-  // Ranges
-  const yearRange: [number, number] = variable?.imagery ? imageryYears(variable.imagery) : GISTEMP_YEARS;
+  // Ranges. The timeline follows the main layer, or the newest other layer that has years.
+  const timed = [variable, ...[...state.extra].reverse().map((id) => variableById[id])].find((v) => v?.imagery && !v.imagery.static) ?? null;
+  const anyGistemp = state.variable === 'gistemp' || state.extra.includes('gistemp');
+  const yearRange: [number, number] = timed?.imagery ? imageryYears(timed.imagery) : GISTEMP_YEARS;
   const chartYears = chartVariable.years ?? GISTEMP_YEARS;
   const periodRange: [number, number] = state.variable === 'gistemp' ? GISTEMP_YEARS : chartYears;
   const from = Math.max(state.from, chartYears[0]);
   const to = Math.min(state.to, chartYears[1]);
-  const dated = !!variable?.imagery && !variable.imagery.static;
-  const showYear = dated || (state.variable === 'gistemp' && state.gistempMode === 'year');
-  const canPlay = dated || state.variable === 'gistemp';
+  const dated = !!timed;
+  const showYear = dated || (anyGistemp && state.gistempMode === 'year');
+  const canPlay = dated || anyGistemp;
 
   // Before/after shutter: the left side shows `compare`, the right side the timeline year.
   const comparing = state.compare !== null && showYear;
@@ -602,6 +618,12 @@ export default function Explore() {
     [comparing, leftImagery, leftData, leftYear, state.year, s.timeline.handle],
   );
   const compareStart = state.variable === 'gistemp' ? 1950 : yearRange[0];
+  // The other layers on at the same time, for the same year. While two years are compared on the
+  // shutter they would show one year on both sides, so they wait.
+  const extraImagery = useMemo(
+    () => (comparing ? [] : state.extra.map((id) => imageryOf(variableById[id], state.year)).filter((x) => x !== null)),
+    [comparing, state.extra, imageryOf, state.year],
+  );
 
   // Analysis
   const analysis = useAnalysis(state.chartVariable, state.regionA, state.regionB, state.season, from, Math.max(from + 1, to), state.chartView);
@@ -615,6 +637,8 @@ export default function Explore() {
   // Clicking a year on the chart shows it on the globe: the map layer if it has years, otherwise
   // the chart variable's own layer.
   const onPickYear = (year: number, month?: number) => {
+    // The left side of the shutter already shows it.
+    if (comparing && year === state.compare) return;
     if (month) dispatch({ type: 'month', month });
     const target = variable && (variable.imagery || variable.id === 'gistemp') ? variable : chartVariable.imagery || chartVariable.id === 'gistemp' ? chartVariable : null;
     if (!target) return;
@@ -781,11 +805,27 @@ export default function Explore() {
     [cityCard],
   );
 
-  const onCountry = useCallback((slot: Slot, c: GeoCountry) => {
+  // A country or a city typed into the analysis: the camera goes there.
+  const onPlace = useCallback((slot: Slot, region: Region) => {
     setMissedCountry(false);
-    dispatch({ type: 'region', slot, region: countryRegion(c) });
-    globe.current?.flyTo(c.label[0], c.label[1], c.area > 3e6 ? 2.6 : c.area > 3e5 ? 1.9 : 1.5);
+    dispatch({ type: 'region', slot, region });
+    if (region.kind === 'country') {
+      const b = region.box;
+      const span = Math.max(b.n - b.s, (b.e >= b.w ? b.e - b.w : b.e + 360 - b.w) * Math.cos((region.lat * Math.PI) / 180));
+      globe.current?.flyTo(region.lat, region.lon, span > 25 ? 2.6 : span > 8 ? 1.9 : 1.5);
+    } else {
+      const c = regionCentre(region);
+      globe.current?.flyTo(c.lat, c.lon, 1.25);
+    }
   }, []);
+  const onYearMode = useCallback(
+    (mode: 'period' | 'years') => {
+      dispatch({ type: 'yearMode', mode });
+      // The first time: the last year of the period, which the globe can show at once.
+      if (mode === 'years' && !state.years.length) dispatch({ type: 'toggleYear', year: to });
+    },
+    [state.years.length, to],
+  );
 
   const onPick = useCallback(
     (p: GlobePoint) => {
@@ -824,6 +864,11 @@ export default function Explore() {
     const v = climate.field.values[cellIndex(climate.data.meta, hover.lat, hover.lon)];
     const unit = state.gistempMode === 'trend' ? t.explore.readout.perDecade : '°C';
     layerLine = `${variableById.gistemp.name[lang]}: ${Number.isFinite(v) ? `${numberFormat(lang, state.gistempMode === 'trend' ? 2 : 1)(v)} ${unit}` : s.readout.noData}`;
+  } else if (hover && variable?.imagery?.points) {
+    // Fire points of one archive day: whether a point is under the pointer, and which day it is.
+    const c = globe.current?.sampleImagery(hover.lat, hover.lon);
+    const day = state.day ?? imageryDate(variable.imagery, state.year);
+    layerLine = liveText.layerScale.fireDay(whenText({ from: day }, lang), !!c && c[3] > 40);
   } else if (hover && variable) {
     // Any NASA GIBS layer: the colour under the pointer read back through the layer's colour map.
     const c = colorMap ? globe.current?.sampleImagery(hover.lat, hover.lon) : null;
@@ -842,15 +887,36 @@ export default function Explore() {
 
   const panelTitle = state.panel ? s.rail[state.panel] : '';
 
+  // Everything that is on, in one list, each with its own off button.
+  const o = s.onNow;
+  const set = (part: Parameters<typeof dispatch>[0]) => () => dispatch(part);
+  const onNow: OnItem[] = [
+    ...[state.variable, ...[...state.extra].reverse()]
+      .filter((id): id is VariableId => id !== null)
+      .map((id) => ({ id: `layer-${id}`, label: variableById[id].name[lang], off: set({ type: 'layerOff', id }) })),
+    ...(comparing && !state.blackout ? [{ id: 'compare', label: o.compare(leftYear, state.year), off: set({ type: 'compare', year: null }) }] : []),
+    ...(state.blackout ? [{ id: 'blackout', label: o.blackout, off: set({ type: 'blackout', on: false }) }] : []),
+    ...(state.liveFires ? [{ id: 'liveFires', label: o.liveFires, off: set({ type: 'set', state: { liveFires: false } }) }] : []),
+    ...(state.aqi ? [{ id: 'aqi', label: o.aqi, off: set({ type: 'set', state: { aqi: false } }) }] : []),
+    ...(state.radiation ? [{ id: 'radiation', label: o.radiation, off: set({ type: 'set', state: { radiation: false } }) }] : []),
+    ...(state.front ? [{ id: 'front', label: o.front, off: set({ type: 'set', state: { front: false } }) }] : []),
+    ...(state.war ? [{ id: 'war', label: o.war, off: set({ type: 'war', on: false }) }] : []),
+    ...(state.wind ? [{ id: 'wind', label: o.wind, off: set({ type: 'set', state: { wind: false } }) }] : []),
+    ...(state.field !== 'none' ? [{ id: 'field', label: o.field(liveText.weatherGlobe.fields[state.field]), off: set({ type: 'set', state: { field: 'none' } }) }] : []),
+    ...(state.borders ? [{ id: 'borders', label: o.borders, off: set({ type: 'borders', on: false }) }] : []),
+    ...(state.borders && state.cities ? [{ id: 'cities', label: o.cities, off: set({ type: 'set', state: { cities: false } }) }] : []),
+  ];
+
   return (
     <main className="explore studio">
-      <h1 className="visually-hidden">Earth-System-Detective: 3D</h1>
+      <h1 className="visually-hidden">Earth System Detective: 3D</h1>
       <Globe
         label={t.explore.globe}
         fallback={t.explore.unavailable}
         lang={lang}
         data={climate.overlay}
         imagery={imagery}
+        extraImagery={extraImagery}
         showBorders={state.borders}
         vector={vector}
         markers={markers}
@@ -882,7 +948,7 @@ export default function Explore() {
         onLoadingChange={setLoading}
         apiRef={globe}
       />
-      <TopBar back center={<CountrySearch onFound={onFound} />} view="3d" />
+      <TopBar back center={<CountrySearch onFound={onFound} countriesOnly />} view="3d" />
       <Rail
         panel={state.panel}
         analysisOpen={state.analysisOpen}
@@ -895,6 +961,8 @@ export default function Explore() {
           {state.panel === 'layers' && (
             <LayersPanel
               variable={state.variable}
+              extra={state.extra}
+              onLayerOff={(id) => dispatch({ type: 'layerOff', id })}
               mode={state.gistempMode}
               borders={state.borders}
               labels={state.labels}
@@ -918,8 +986,10 @@ export default function Explore() {
           )}
           {state.panel === 'fires' && (
             <FiresPanel
-              archiveDay={state.variable === 'fires' ? (state.day ?? (variable?.imagery ? imageryDate(variable.imagery, state.year) : null)) : null}
-              onArchiveDay={(date) => dispatch({ type: 'show', variable: 'fires', date })}
+              archiveDay={
+                state.variable === 'fires' || state.extra.includes('fires') ? (state.day ?? imageryDate(variableById.fires.imagery!, state.year)) : null
+              }
+              onArchiveDay={(date) => dispatch({ type: 'show', variable: 'fires', date, keep: true })}
               comparing={state.compare !== null}
               liveFires={state.liveFires}
               onLiveFires={(on) => dispatch({ type: 'set', state: { liveFires: on } })}
@@ -1000,8 +1070,16 @@ export default function Explore() {
           pickMode={state.pickMode}
           chartView={state.chartView}
           missedCountry={missedCountry}
+          cities={cityList}
           onPickMode={(mode) => dispatch({ type: 'pickMode', mode })}
-          onCountry={onCountry}
+          onPlace={onPlace}
+          yearRange={chartYears}
+          yearMode={state.yearMode}
+          years={state.years}
+          onYearMode={onYearMode}
+          onToggleYear={(year) => dispatch({ type: 'toggleYear', year })}
+          onPeriod={(f, tt) => dispatch({ type: 'period', from: f, to: tt })}
+          shutter={comparing && !state.blackout ? [leftYear, state.year] : null}
           onChartView={(v) => dispatch({ type: 'chartView', view: v })}
           radiusKm={state.radiusKm}
           season={state.season}
@@ -1122,7 +1200,7 @@ export default function Explore() {
           compare={comparing ? leftYear : null}
           compareStart={compareStart}
           onCompare={(year) => dispatch({ type: 'compare', year })}
-          onYear={(year) => dispatch({ type: 'year', year })}
+          onYear={(year) => dispatch(comparing ? { type: 'compareRight', year } : { type: 'year', year })}
           onMonth={(month) => dispatch({ type: 'month', month })}
           onPeriod={(f, tt) => dispatch({ type: 'period', from: f, to: tt })}
           onPlay={onPlay}
@@ -1132,7 +1210,7 @@ export default function Explore() {
             setPlayFrom(y);
             dispatch({ type: 'year', year: y });
           }}
-          showPeriod={state.analysisOpen || (state.variable === 'gistemp' && state.gistempMode !== 'year')}
+          showPeriod={(state.analysisOpen && state.yearMode === 'period') || (state.variable === 'gistemp' && state.gistempMode !== 'year')}
         />
       )}
 
@@ -1158,27 +1236,7 @@ export default function Explore() {
       )}
       {hintHover && !hintId && hintById[hintHover.id] && <HintPreview hint={hintById[hintHover.id]} x={hintHover.x} y={hintHover.y} />}
 
-      {variable && (
-        <div className="layer-chip" role="group" aria-label={s.activeLayer}>
-          <span className="layer-chip__name">
-            <Icon name="layers" size={16} />
-            {variable.name[lang]}
-          </span>
-          <button
-            type="button"
-            className="layer-chip__exit"
-            aria-label={s.exitLayerLabel(variable.name[lang])}
-            title={s.exitLayerLabel(variable.name[lang])}
-            onClick={() => {
-              dispatch({ type: 'variable', id: null });
-              dispatch({ type: 'compare', year: null });
-            }}
-          >
-            <Icon name="close" size={16} />
-            <span>{s.exitLayer}</span>
-          </button>
-        </div>
-      )}
+      <OnNow items={onNow} onAllOff={() => dispatch({ type: 'allOff' })} />
 
       {!airHover && !radHover && (
         <CursorInfo point={hover} frame={frame} fires={fireData} air={airIndex} hints={hints} layerLine={layerLine} />

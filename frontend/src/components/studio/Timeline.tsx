@@ -197,7 +197,7 @@ export function Timeline(p: Props) {
             step={1}
             value={p.from}
             aria-label={t.from}
-            onChange={(e) => p.onPeriod(Math.min(Number(e.target.value), p.to - 5), p.to)}
+            onChange={(e) => p.onPeriod(Math.min(Number(e.target.value), p.to - 1), p.to)}
           />
           <input
             className="range2__input"
@@ -207,7 +207,7 @@ export function Timeline(p: Props) {
             step={1}
             value={p.to}
             aria-label={t.to}
-            onChange={(e) => p.onPeriod(p.from, Math.max(Number(e.target.value), p.from + 5))}
+            onChange={(e) => p.onPeriod(p.from, Math.max(Number(e.target.value), p.from + 1))}
           />
         </div>
         <output className="timeline__value timeline__value--wide">

@@ -679,6 +679,169 @@ p {
   transform: translateY(2px);
 }
 
+.summary__title {
+  margin: 0;
+  font: 600 14px / 1.3 var(--font-body);
+}
+
+.summary__block {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.summary__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A country or a city typed under A and B */
+.place-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-left: calc(22px + var(--space-2));
+}
+
+.place-box .region__country {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin-left: 0;
+}
+
+.place-box__go {
+  flex: none;
+  min-height: 34px;
+}
+
+.place-box__error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* What to compare and which years */
+.drawer__what {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.years-pick {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.years-pick__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.years-pick__chip {
+  gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.years-pick__chip:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.years-pick__dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pick, var(--color-series-a));
+}
+
+.drawer__ahead {
+  font-size: 13px;
+}
+
+/* Years picked one by one */
+.years-result {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.years-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.years-table th,
+.years-table td {
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--color-star-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.years-table thead th {
+  color: var(--color-haze);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.years-table td strong {
+  display: block;
+}
+
+.years-table td small {
+  display: block;
+  color: var(--color-haze);
+  font-size: 12px;
+}
+
+.years-table__year {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 600;
+}
+
+.years-table__usual th,
+.years-table__usual td {
+  color: var(--color-star-deep);
+}
+
+.years-bar {
+  position: relative;
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: var(--color-star-rule);
+}
+
+.years-bar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--color-series-a);
+}
+
+.years-bar--b .years-bar__fill {
+  background: var(--color-series-b);
+}
+
+.years-bar__usual {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--color-star);
+}
+
 /* What the marks on the chart are */
 .marks__title {
   margin: 0 0 var(--space-1);

@@ -4,7 +4,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { countryExact, countryName } from '../../data/geo';
-import type { Hint } from '../../data/hints';
+import { whenText, type Hint } from '../../data/hints';
 import type { LiveFires, WeatherFrame } from '../../data/live';
 import { distanceKm, fireIndex, weatherAt, type PointIndex } from '../../data/nearby';
 import { localTime } from '../../data/timezones';
@@ -24,6 +24,8 @@ type Props = {
 };
 
 const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
+/** How far an event may be and still be named under the pointer. */
+const EVENT_KM = 80;
 
 /** Where the pointer last was, kept while the card is not mounted. */
 const lastPointer = { x: -1000, y: -1000 };
@@ -105,8 +107,9 @@ export function CursorInfo({ point, frame, fires, air, hints, layerLine }: Props
     if (wx.temp >= 35) events.push({ kind: 'heat', text: t.heat });
     if (wx.temp <= -25) events.push({ kind: 'cold', text: t.cold });
   }
-  const hint = hints.map((h) => ({ h, km: distanceKm(point.lat, point.lon, h.lat, h.lon) })).filter((x) => x.km < 220).sort((a, b) => a.km - b.km)[0];
-  if (hint) events.push({ kind: 'event', text: hint.h.title[lang] });
+  // An event only close by, with its date and distance: one from years ago 200 km away is not "here".
+  const hint = hints.map((h) => ({ h, km: distanceKm(point.lat, point.lon, h.lat, h.lon) })).filter((x) => x.km < EVENT_KM).sort((a, b) => a.km - b.km)[0];
+  if (hint) events.push({ kind: 'event', text: t.event(whenText(hint.h.when, lang), nf0.format(Math.max(1, hint.km)), hint.h.title[lang]) });
 
   return (
     <div ref={ref} className="cursor-info" role="status">
@@ -115,7 +118,8 @@ export function CursorInfo({ point, frame, fires, air, hints, layerLine }: Props
         <span>{formatPoint(point.lat, point.lon, lang)}</span>
       </p>
       <p className="cursor-info__main">
-        {wx && <span className="cursor-info__temp">{nf0.format(wx.temp)}°</span>}
+        {/* Rounded first, so -0.3 shows as 0 and not as "-0". */}
+        {wx && <span className="cursor-info__temp">{nf0.format(Math.round(wx.temp) || 0)}°</span>}
         <span className="cursor-info__time">
           {time.time}
           <small>{time.offset}</small>

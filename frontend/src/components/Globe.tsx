@@ -128,6 +128,8 @@ type Props = {
   lang: Lang;
   data: GlobeData | null;
   imagery: GlobeImagery | null;
+  /** Layers shown together with `imagery`, oldest first. */
+  extraImagery?: GlobeImagery[];
   showBorders: boolean;
   vector: GlobeVector | null;
   markers: GlobeMarker[];
@@ -390,6 +392,8 @@ const fieldFragment = /* glsl */ `
 type Api = GlobeApi & {
   setData: (data: GlobeData | null) => void;
   setImagery: (imagery: GlobeImagery | null) => void;
+  /** Layers shown together with the main imagery, oldest first. */
+  setExtras: (list: GlobeImagery[]) => void;
   setCompare: (left: { imagery: GlobeImagery | null; data: GlobeData | null } | null) => void;
   setSplit: (fraction: number) => void;
   setBorders: (on: boolean) => void;
@@ -562,13 +566,13 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
         land.value.dispose();
         land.value = tex;
         landState = 'ready';
-        imageryUniforms.uLandOnly.value = landWanted.right ? 1 : 0;
-        imageryUniformsL.uLandOnly.value = landWanted.left ? 1 : 0;
+        landWanted.forEach((want, u) => (u.uLandOnly.value = want ? 1 : 0));
         requestRender();
       })
       .catch(() => (landState = 'none'));
   };
-  const landWanted = { right: false, left: false };
+  /** Which imagery layers want the land-only cut, by their uniforms. */
+  const landWanted = new Map<{ uLandOnly: { value: number } }, boolean>();
 
   const imageryUniforms = {
     uOpacity: { value: 0.9 },
@@ -619,6 +623,30 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   imageryMeshL.renderOrder = 1;
   imageryMeshL.visible = false;
   scene.add(imageryMeshL);
+
+  // Layers shown together with the main one: under it, or above every map for point layers
+  // (fires), so a smoke map and the fires that made it can be seen at once.
+  type ExtraLayer = { layer: TiledLayer; mesh: THREE.Mesh; uniforms: typeof imageryUniforms };
+  const extras: ExtraLayer[] = [];
+  const makeExtra = (): ExtraLayer => {
+    const layer = new TiledLayer(2, anisotropy, requestRender, onLoading, 30);
+    const uniforms = {
+      uOpacity: { value: 0.9 },
+      uTint: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uLand: land,
+      uLandOnly: { value: 0 },
+      uSplit: split,
+      uSide: { value: 0 },
+      ...tiledUniforms('uImg', layer),
+    };
+    const mesh = new THREE.Mesh(
+      sphere,
+      new THREE.ShaderMaterial({ uniforms, vertexShader: vertex, fragmentShader: overlayFragment('uImg'), transparent: true, depthTest: false, depthWrite: false }),
+    );
+    mesh.visible = false;
+    scene.add(mesh);
+    return { layer, mesh, uniforms };
+  };
 
   const dataUniforms = {
     uData: { value: new THREE.Texture() },
@@ -933,6 +961,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     base.updateView(box, px);
     if (imageryMesh.visible) imagery.updateView(box, px);
     if (imageryMeshL.visible) imageryL.updateView(box, px);
+    for (const x of extras) if (x.mesh.visible) x.layer.updateView(box, px);
     warLayer.updatePatch(box, px);
     frontLayer.updatePatch(box, px);
     if (light !== 'flat') night.updateView(box, px);
@@ -1183,6 +1212,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   stationLayer.canvas.hidden = true;
   host.insertBefore(stationLayer.canvas, labelRenderer.domElement);
   const radLayer = new StationLayer('globe__rad', 'tag');
+  // Radiation tags keep clear of the air bubbles, which are drawn first.
+  radLayer.avoid = stationLayer;
   radLayer.canvas.hidden = true;
   host.insertBefore(radLayer.canvas, labelRenderer.domElement);
   // City names: under the station bubbles, above the map.
@@ -1327,10 +1358,10 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     requestRender();
   }
 
-  function applyImagery(mesh: THREE.Mesh, uniforms: typeof imageryUniforms, layer: TiledLayer, next: GlobeImagery | null) {
+  function applyImagery(mesh: THREE.Mesh, uniforms: typeof imageryUniforms, layer: TiledLayer, next: GlobeImagery | null, mapOrder = 1, pointOrder = 2.7) {
     mesh.visible = !!next;
     const landOnly = !!next?.landOnly;
-    landWanted[uniforms === imageryUniforms ? 'right' : 'left'] = landOnly;
+    landWanted.set(uniforms, landOnly);
     if (landOnly) ensureLand();
     uniforms.uLandOnly.value = landOnly && landState === 'ready' ? 1 : 0;
     layer.setSource(next?.source ?? null);
@@ -1339,7 +1370,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     if (next?.points) tint.set(fireColor.r, fireColor.g, fireColor.b, 1);
     else tint.set(0, 0, 0, 0);
     // Points go above the war layer (2.5); continuous fields stay under it.
-    mesh.renderOrder = next?.points ? 2.7 : 1;
+    mesh.renderOrder = next?.points ? pointOrder : mapOrder;
     requestRender();
     scheduleView();
   }
@@ -1379,6 +1410,14 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
     },
     setImagery(next) {
       applyImagery(imageryMesh, imageryUniforms, imagery, next);
+    },
+    setExtras(list) {
+      while (extras.length < list.length) extras.push(makeExtra());
+      // Oldest lowest: each layer sits just under the one turned on after it.
+      extras.forEach((x, i) => {
+        const below = list.length - i;
+        applyImagery(x.mesh, x.uniforms, x.layer, list[i] ?? null, 1 - below * 0.01, 2.7 - below * 0.01);
+      });
     },
     setCompare(left) {
       const on = !!left;
@@ -1700,6 +1739,7 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
       base.dispose();
       imagery.dispose();
       imageryL.dispose();
+      for (const x of extras) x.layer.dispose();
       dataUniforms.uData.value.dispose();
       dataUniformsL.uData.value.dispose();
       warLayer.dispose();
@@ -1728,6 +1768,8 @@ function createGlobe(host: HTMLElement, opts: { reduced: boolean; lang: Lang }, 
   };
   return api;
 }
+
+const NO_IMAGERY: GlobeImagery[] = [];
 
 /** Full-screen interactive Earth: drag to rotate, wheel or pinch to zoom, click to pick a place. */
 export function Globe(props: Props) {
@@ -1776,6 +1818,8 @@ export function Globe(props: Props) {
   useEffect(() => api.current?.setBorders(showBorders), [showBorders]);
   useEffect(() => api.current?.setData(data), [data]);
   useEffect(() => api.current?.setImagery(imagery), [imagery]);
+  const extraImagery = props.extraImagery ?? NO_IMAGERY;
+  useEffect(() => api.current?.setExtras(extraImagery), [extraImagery]);
   useEffect(() => api.current?.setMarkers(markers), [markers]);
   useEffect(() => api.current?.setHints(props.hints ?? []), [props.hints]);
   const cities = props.cities ?? null;

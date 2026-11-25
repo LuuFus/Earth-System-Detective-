@@ -85,7 +85,6 @@ const uk = {
     aqiNote: 'Індекс якості повітря (AQI, шкала EPA) з датчиків PM2.5 і PM10; станції, що звітували за останні 3 години.',
     aqiBands: ['Чисте', 'Прийнятне', 'Брудне для чутливих', 'Брудне', 'Дуже брудне', 'Небезпечне'],
     radiation: 'Радіаційний фон (станції по всьому світу)',
-    oneOfTwo: 'Повітря й радіація вмикаються по черзі, щоб позначки не накладалися',
     radiationNote: 'Кожна позначка — окрема станція, що постійно міряє гамма-фон саме в цьому місці, у мкЗв/год. Україна — SaveEcoBot; Німеччина й Фінляндія — державні мережі BfS і STUK; решта світу — волонтерські лічильники Safecast і Sensor.Community (менш точні). Де позначок немає, там немає відкритих даних: загальноєвропейська мережа EURDEP не дозволяє їх брати. Старші за 3 години виміри напівпрозорі.',
     radiationUnit: 'Потужність дози, мкЗв/год (мікрозіверт за годину)',
     radiationBands: ['до 0,15 — низький природний фон', '0,15–0,3 — звичайний природний фон', '0,3–1 — підвищений (граніт, гори, окремі місця)', 'понад 1 — високий: забруднені ділянки, як у Чорнобильській зоні'],
@@ -156,7 +155,7 @@ const uk = {
   about: {
     kicker: 'Про сайт',
     title: 'Що це за сайт і для чого він',
-    lead: 'Earth-System-Detective — це 3D-Земля й мапа, на яких зібрано відкриті дані NASA, NOAA, Copernicus та українських проєктів. Супутники щодня вимірюють температуру, опади, лід, рослинність, забруднення повітря й пожежі, але ці дані розкидані по десятках архівів і форматів. Ми звели їх в одне місце, щоб їх можна було просто подивитися, порівняти й перевірити.',
+    lead: 'Earth System Detective — це 3D-Земля й мапа, на яких зібрано відкриті дані NASA, NOAA, Copernicus та українських проєктів. Супутники щодня вимірюють температуру, опади, лід, рослинність, забруднення повітря й пожежі, але ці дані розкидані по десятках архівів і форматів. Ми звели їх в одне місце, щоб їх можна було просто подивитися, порівняти й перевірити.',
     whyTitle: 'Для чого',
     why: [
       'Щоб будь-хто міг сам побачити, що змінюється на планеті й удома: де теплішає, де горить, яке повітря у твоєму місті, що відбувається на фронті й з енергосистемою.',
@@ -418,6 +417,7 @@ const uk = {
     hover: 'Наведіть курсор на глобус, щоб побачити значення в точці.',
     level: (v: string, word: string) => `${v} (${word} для цієї шкали)`,
     noValue: 'тут немає даних',
+    fireDay: (day: string, here: boolean) => `Пожежі ${day} (архів): ${here ? 'тут була точка вогню' : 'тут точок вогню не було'}`,
   },
   event: {
     what: 'Що сталося',
@@ -569,7 +569,8 @@ const uk = {
   },
   cursor: {
     sea: 'Відкрите море',
-    fires: (n: number, km: string) => `Пожежі поруч: ${n} за 48 год у радіусі 50 км (найближча за ${km} км)`,
+    fires: (n: number, km: string) => `Зараз, за останні 48 год: ${n} ${n % 10 === 1 && n % 100 !== 11 ? 'точка' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'точки' : 'точок'} вогню в радіусі 50 км (найближча за ${km} км)`,
+    event: (when: string, km: string, title: string) => `Подія ${when}, за ${km} км: ${title}`,
     air: (aqi: number, band: string, km: string) => `Повітря поруч: AQI ${aqi}, ${band.toLowerCase()} (${km} км)`,
     bands: ['Чисте', 'Прийнятне', 'Брудне для чутливих', 'Брудне', 'Дуже брудне', 'Небезпечне'],
     gust: (v: string) => `Сильні пориви вітру до ${v} м/с`,
@@ -582,7 +583,7 @@ const uk = {
   },
   stat: {
     ranges: { r10: '10 років', r30: '30 років', all: 'Увесь період' },
-    caption: (year: number) => `у ${year} році · зміна за трендом`,
+    caption: (year: number, since: number) => `у ${year} році · порівняно з ${since}`,
   },
   sources: {
     open: 'Джерела',
@@ -681,7 +682,6 @@ const en: LiveText = {
     aqiNote: 'Air Quality Index (AQI, EPA scale) from PM2.5 and PM10 sensors; stations that reported in the last 3 hours.',
     aqiBands: ['Clean', 'Acceptable', 'Unhealthy for sensitive people', 'Unhealthy', 'Very unhealthy', 'Hazardous'],
     radiation: 'Background radiation (stations worldwide)',
-    oneOfTwo: 'Air and radiation take turns, so the markers do not cover each other',
     radiationNote: "Each tag is a station that keeps measuring the gamma background at that very place, in µSv/h. Ukraine: SaveEcoBot; Germany and Finland: the national networks BfS and STUK; elsewhere: volunteers' counters of Safecast and Sensor.Community (less precise). Where there are no tags there is no open data: the European network EURDEP does not allow its data to be taken. Readings older than 3 hours are faded.",
     radiationUnit: 'Dose rate, µSv/h (microsieverts per hour)',
     radiationBands: ['up to 0.15: low natural background', '0.15 to 0.3: ordinary natural background', '0.3 to 1: raised (granite, mountains, some spots)', 'over 1: high, contaminated ground as in the Chornobyl zone'],
@@ -752,7 +752,7 @@ const en: LiveText = {
   about: {
     kicker: 'About',
     title: 'What this site is and what it is for',
-    lead: 'Earth-System-Detective is a 3D Earth and a map that bring together open data from NASA, NOAA, Copernicus and Ukrainian projects. Satellites measure temperature, rain, ice, vegetation, air pollution and fires every day, but the data are scattered across dozens of archives and formats. We put them in one place so they can simply be looked at, compared and checked.',
+    lead: 'Earth System Detective is a 3D Earth and a map that bring together open data from NASA, NOAA, Copernicus and Ukrainian projects. Satellites measure temperature, rain, ice, vegetation, air pollution and fires every day, but the data are scattered across dozens of archives and formats. We put them in one place so they can simply be looked at, compared and checked.',
     whyTitle: 'Why',
     why: [
       'So that anyone can see for themselves what is changing on the planet and at home: where it is warming, where it is burning, what the air is like in your town, what is happening at the front and to the power grid.',
@@ -1014,6 +1014,7 @@ const en: LiveText = {
     hover: 'Point at the globe to read the value there.',
     level: (v: string, word: string) => `${v} (${word} for this scale)`,
     noValue: 'no data here',
+    fireDay: (day: string, here: boolean) => `Fires on ${day} (archive): ${here ? 'a fire point here' : 'no fire points here'}`,
   },
   event: {
     what: 'What happened',
@@ -1165,7 +1166,8 @@ const en: LiveText = {
   },
   cursor: {
     sea: 'Open sea',
-    fires: (n: number, km: string) => `Fires nearby: ${n} in 48 h within 50 km (nearest ${km} km)`,
+    fires: (n: number, km: string) => `Now, in the last 48 h: ${n} fire point${n === 1 ? '' : 's'} within 50 km (nearest ${km} km)`,
+    event: (when: string, km: string, title: string) => `Event of ${when}, ${km} km away: ${title}`,
     air: (aqi: number, band: string, km: string) => `Air nearby: AQI ${aqi}, ${band.toLowerCase()} (${km} km)`,
     bands: ['Clean', 'Acceptable', 'Unhealthy for sensitive people', 'Unhealthy', 'Very unhealthy', 'Hazardous'],
     gust: (v: string) => `Strong gusts up to ${v} m/s`,
@@ -1178,7 +1180,7 @@ const en: LiveText = {
   },
   stat: {
     ranges: { r10: '10 years', r30: '30 years', all: 'Whole period' },
-    caption: (year: number) => `in ${year} · change along the trend`,
+    caption: (year: number, since: number) => `in ${year} · compared with ${since}`,
   },
   sources: {
     open: 'Sources',

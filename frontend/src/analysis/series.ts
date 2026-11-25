@@ -539,8 +539,17 @@ export class OutsideCoverage extends Error {
   }
 }
 
+/** Whether the grid holds the whole region: a country half outside it would be half counted. */
+function gridHolds(meta: GridMeta, region: Region, mask: Mask): boolean {
+  const pad = meta.step / 2;
+  const b = mask.country ? { s: mask.country.box[0], w: mask.country.box[1], n: mask.country.box[2], e: mask.country.box[3] } : regionBox(region);
+  return b.s >= meta.box.s - pad && b.n <= meta.box.n + pad && b.w >= meta.box.w - pad && b.e <= meta.box.e + pad;
+}
+
 async function gridSeries(source: Extract<SeriesSource, { kind: 'grid' }>, region: Region, season: Season): Promise<Series> {
   const [{ meta, data }, mask] = await Promise.all([loadGrid(source.file), regionMask(region)]);
+  // Part of the region outside the grid: its number would describe only the part inside.
+  if (!gridHolds(meta, region, mask)) throw new OutsideCoverage(source.coverage);
   const cells: { index: number; weight: number }[] = [];
   let nearest = { index: -1, d: Infinity, weight: 1 };
   for (let row = 0; row < meta.rows; row++) {
@@ -592,7 +601,7 @@ async function gridSeries(source: Extract<SeriesSource, { kind: 'grid' }>, regio
   return {
     points: sum ? sumPoints(rows, season) : meanPoints(rows, season),
     monthly: rows,
-    monthUnit: sum ? { uk: 'виявлень за місяць', en: 'detections per month' } : undefined,
+    monthUnit: sum ? { uk: 'точок вогню за місяць', en: 'fire points per month' } : undefined,
     method: sum
       ? {
           uk: `Кількість виявлень NASA FIRMS (VIIRS 375 м) у ${cellsUk}, сума за місяці сезону.`,

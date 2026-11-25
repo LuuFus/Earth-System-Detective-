@@ -194,7 +194,12 @@ export default function MapPage() {
     return f;
   }, []);
   const stationsLayer = useMemo(() => new StationLayer('weather-map__stations'), []);
-  const radLayer = useMemo(() => new StationLayer('weather-map__rad', 'tag'), []);
+  const radLayer = useMemo(() => {
+    // Radiation tags keep clear of the air bubbles, so the air layer redraws them after itself.
+    const layer = new StationLayer('weather-map__rad', 'tag');
+    layer.avoid = stationsLayer;
+    return layer;
+  }, [stationsLayer]);
   // Smoke: its state and the canvas part (wind, towns) from the shared hook; the puffs are drawn
   // on the map's WebGL context (Three.js) by a custom layer, above the map layers.
   const smokeGl = useMemo(() => new SmokeMapLayer(), []);
@@ -876,17 +881,25 @@ export default function MapPage() {
     stationsLayer.set(stationData);
     stationsLayer.canvas.hidden = !stationData;
     const map = mapRef.current;
-    if (!map || !view || !stationData) return;
-    stationsLayer.draw(view);
+    // The radiation tags step aside for the bubbles: they are placed again after every bubble draw.
+    const tags = () => view && radLayer.active && radLayer.draw(view);
+    if (!map || !view || !stationData) {
+      tags();
+      return;
+    }
+    const redraw = () => {
+      stationsLayer.draw(view);
+      tags();
+    };
+    redraw();
     // Once more on the next frame, when the map has settled after a change of size or data.
-    const raf = requestAnimationFrame(() => stationsLayer.draw(view));
-    const redraw = () => stationsLayer.draw(view);
+    const raf = requestAnimationFrame(redraw);
     map.on('move', redraw);
     return () => {
       cancelAnimationFrame(raf);
       map.off('move', redraw);
     };
-  }, [stationData, stationsLayer, view]);
+  }, [stationData, stationsLayer, radLayer, view]);
   const [airCard, setAirCard] = useState<{ i: number; x: number; y: number; pinned: boolean } | null>(null);
 
   // ---------- pointer ----------
@@ -1284,14 +1297,8 @@ export default function MapPage() {
   })();
   const now = manifest ? nearestFrame(manifest) : null;
   const setMode = (next: Mode) => setParams({ mode: next }, { replace: true });
-  const toggle = (k: keyof typeof ua) =>
-    setUa((s) => {
-      const next = { ...s, [k]: !s[k] };
-      // Air bubbles and radiation tags would cover each other: one of them at a time.
-      if (k === 'radiation' && next.radiation) next.aqi = false;
-      if (k === 'aqi' && next.aqi) next.radiation = false;
-      return next;
-    });
+  // Every switch is on its own: turning one on never turns another off.
+  const toggle = (k: keyof typeof ua) => setUa((s) => ({ ...s, [k]: !s[k] }));
 
   return (
     <main className={`weather-map weather-map--${mode}`}>
@@ -1319,7 +1326,7 @@ export default function MapPage() {
 
         {uaMode && (
           <div className="wm-ua">
-            <Switch checked={ua.aqi} onChange={() => toggle('aqi')} label={WAQI_TOKEN ? t.ukraine.aqiWaqi : t.ukraine.aqi} note={t.ukraine.oneOfTwo} />
+            <Switch checked={ua.aqi} onChange={() => toggle('aqi')} label={WAQI_TOKEN ? t.ukraine.aqiWaqi : t.ukraine.aqi} />
             <Switch checked={ua.fires} onChange={() => toggle('fires')} label={t.ukraine.fires} />
             {ua.fires && (
               <div className="live-legend wm-keys">
@@ -1373,7 +1380,7 @@ export default function MapPage() {
                 ))}
               </div>
             )}
-            <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} note={t.ukraine.oneOfTwo} />
+            <Switch checked={ua.radiation} onChange={() => toggle('radiation')} label={t.ukraine.radiation} />
             <div className="wm-sep" />
             {manifest?.airq && (
               <Switch

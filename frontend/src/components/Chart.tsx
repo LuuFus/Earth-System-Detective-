@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { clampTo } from '../analysis/facts';
 import { trendBand, type Band, type Point, type TrendStats } from '../analysis/stats';
 import { svgToPng, toCsv, yScale, type ChartHandle } from './chartExport';
 
@@ -36,6 +37,8 @@ type Props = {
   format: (v: number) => string;
   /** Years to carry each trend on after `to`, with its 95% range; 0 for none (years only). */
   forecast: number;
+  /** Values the quantity can never pass (no negative fires): the carried-on band keeps inside. */
+  bounds?: { min?: number; max?: number };
   marks: ChartMark[];
   /** The year the globe shows, marked on the chart; clicking a value moves the globe there. */
   mapYear: number | null;
@@ -123,7 +126,7 @@ function ticksFor(v0: number, v1: number, plotW: number, months: string[]): { x:
  * to pan, the strip below to pick the window, double click to see it all, and a full-screen view.
  */
 export const Chart = forwardRef<ChartHandle, Props>(function Chart(props, ref) {
-  const { series, unit, from, to, resolution, format, marks, mapYear, onPickYear, labels } = props;
+  const { series, unit, from, to, resolution, format, marks, mapYear, onPickYear, labels, bounds } = props;
   const forecast = resolution === 'year' ? props.forecast : 0;
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -170,11 +173,14 @@ export const Chart = forwardRef<ChartHandle, Props>(function Chart(props, ref) {
     for (const s of sorted) {
       if (!s.stats) continue;
       const list: Band[] = [];
-      for (let yr = to; yr <= end; yr++) list.push(trendBand(s.stats, yr));
+      for (let yr = to; yr <= end; yr++) {
+        const b = trendBand(s.stats, yr);
+        list.push({ x: b.x, mid: clampTo(b.mid, bounds), low: clampTo(b.low, bounds), high: clampTo(b.high, bounds) });
+      }
       out.set(s.id, list);
     }
     return out;
-  }, [sorted, forecast, to, end]);
+  }, [sorted, forecast, to, end, bounds]);
 
   const visible = sorted.map((s) => s.points.filter((p) => p.x >= v0 && p.x <= v1));
   const values = [

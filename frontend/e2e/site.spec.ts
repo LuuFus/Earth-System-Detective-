@@ -45,6 +45,31 @@ test('analysis: the year labels under a narrow slider do not run together', asyn
   for (let i = 1; i < boxes.length; i++) expect(boxes[i].left).toBeGreaterThan(boxes[i - 1].right);
 });
 
+test('analysis: measured numbers, nothing made up past the data, the globe follows the chart, single years', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/explore?a=c:UA&cv=fires&v=fires&p=2012-2025');
+  const drawer = page.locator('#analysis-drawer');
+  await expect(drawer.locator('.summary')).toContainText('Найбільше — у');
+  // No trend carried on past the period unless asked for, and so no negative fire counts.
+  await expect(drawer.locator('.chart__band')).toHaveCount(0);
+  const ticks = await drawer.locator('.chart__tick').allTextContents();
+  expect(ticks.some((t) => /^[-−]\d/.test(t.trim()))).toBe(false);
+  // A new chart variable puts its layer on the globe.
+  await drawer.locator('.drawer__what select').first().selectOption('precip');
+  await expect(page).toHaveURL(/v=precip/);
+  // Single years: the picked years against a usual year, and the same two years on the globe's shutter.
+  await drawer.getByRole('button', { name: 'Окремі роки' }).click();
+  await drawer.locator('.years-pick select').selectOption('2010');
+  const table = drawer.locator('.years-table');
+  await expect(table).toContainText('2010');
+  await expect(table).toContainText('Звичайний рік');
+  await expect(page).toHaveURL(/ys=2010/);
+  await expect(page).toHaveURL(/cmp=2010/);
+  await expect(page.locator('.globe-split')).toBeVisible();
+  await expect(drawer.locator('.years-result__shutter')).toContainText('ліворуч 2010');
+  expect(errors).toEqual([]);
+});
+
 test('map of Ukraine: the air quality bubbles are drawn', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/map?mode=ukraine');
@@ -291,7 +316,7 @@ test('on a phone, the home and war pages fit the screen', async ({ page }) => {
   }
 });
 
-test('cities: the layer on the globe, a city from the search, two cities compared by everything', async ({ page }) => {
+test('cities: the layer on the globe, cities typed into the analysis, two cities compared by everything', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/explore?b=1&on=cities&cam=49.00,31.00,1.6');
   // City dots, names and population, drawn on their own canvas over the globe.
@@ -307,17 +332,20 @@ test('cities: the layer on the globe, a city from the search, two cities compare
       }),
     )
     .toBeGreaterThan(300);
-  const search = page.getByRole('combobox', { name: 'Пошук країни або міста' });
+  // The search on the globe finds countries only; cities are typed into the analysis.
+  const search = page.getByRole('combobox', { name: 'Пошук країни' });
   await search.fill('Харків');
   await search.press('Enter');
-  const card = page.locator('.city-card');
-  await expect(card).toContainText('Харків');
-  await expect(card).toContainText('Населення агломерації');
-  await card.getByRole('button', { name: 'Порівняти: місце A' }).click();
-  await search.fill('Львів');
-  await search.press('Enter');
-  await page.locator('.city-card').getByRole('button', { name: 'Порівняти: місце B' }).click();
-  // The analysis opens on the comparison by everything, with numbers that arrive one by one.
+  await expect(page.locator('.search__error')).toContainText('панелі «Аналіз»');
+  await page.getByRole('button', { name: 'Аналіз', exact: true }).click();
+  const a = page.getByRole('combobox', { name: 'Країна або місто для A' });
+  await a.fill('Харків');
+  await a.press('Enter');
+  const b = page.getByRole('combobox', { name: 'Країна або місто для B' });
+  await b.fill('Львів');
+  await b.press('Enter');
+  // The comparison by everything, with numbers that arrive one by one.
+  await page.getByRole('tab', { name: 'Усе про місця' }).click();
   const table = page.locator('.place-cmp');
   await expect(table).toContainText('Порівняння за всім');
   await expect(table).toContainText('Харків');
@@ -342,7 +370,7 @@ test('fires: the two layers are explained, and the live fires hide while years a
   expect(errors).toEqual([]);
 });
 
-test('map of Ukraine: air quality and radiation take turns, fires have a card', async ({ page }) => {
+test('map of Ukraine: air quality and radiation stay on together, fires have a card', async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto('/map?mode=ukraine');
   const air = page.locator('.wm-ua .switch', { hasText: 'Якість повітря' }).locator('input');
@@ -350,9 +378,8 @@ test('map of Ukraine: air quality and radiation take turns, fires have a card', 
   await expect(air).toBeChecked();
   await page.locator('.wm-ua .switch', { hasText: 'Радіаційний фон' }).click();
   await expect(rad).toBeChecked();
-  await expect(air).not.toBeChecked();
-  await page.locator('.wm-ua .switch', { hasText: 'Якість повітря' }).click();
-  await expect(rad).not.toBeChecked();
+  // Turning one on never turns the other off.
+  await expect(air).toBeChecked();
   // The fires legend explains how to get a fire's card.
   await expect(page.locator('.wm-ua')).toContainText('Клацніть пожежу');
   expect(errors).toEqual([]);

@@ -83,7 +83,21 @@ export type Variable = {
   pendingNumbers?: boolean;
   /** Plain words for a rise and a fall, for the one-sentence answer above the chart. */
   change?: { up: Text; down: Text };
+  /** What one yearly value means, in everyday words: "how much rain fell in the year". */
+  plain?: Text;
+  /** Words for "more" and "less" of it that go before "than": "warmer" and "colder". */
+  more?: { up: Text; down: Text };
+  /** Values have a true zero (counts, millimetres): a change in percent makes sense. */
+  ratio?: boolean;
+  /** Values can never be below `min` or above `max` (counts, shares). */
+  bounds?: { min?: number; max?: number };
+  /** Said above the analysis when the numbers do not depend on the place chosen. */
+  seriesNote?: Text;
 };
+
+const WARMER = { up: { uk: 'тепліше', en: 'warmer' }, down: { uk: 'холодніше', en: 'colder' } };
+const MORE = { up: { uk: 'більше', en: 'more' }, down: { uk: 'менше', en: 'less' } };
+const WETTER = { up: { uk: 'вологіше', en: 'wetter' }, down: { uk: 'сухіше', en: 'drier' } };
 
 export type VariableId =
   | 'gistemp'
@@ -130,6 +144,11 @@ export const variables: Variable[] = [
     },
     unit: { uk: '°C', en: '°C' },
     trendUnit: { uk: '°C за 10 років', en: '°C per decade' },
+    plain: {
+      uk: 'на скільки градусів рік був теплішим (плюс) чи холоднішим (мінус), ніж у середньому в 1951–1980 роках',
+      en: 'how many degrees warmer (plus) or colder (minus) a year was than the 1951-1980 average',
+    },
+    more: WARMER,
     source: { uk: 'NASA GISS, GISTEMP v4', en: 'NASA GISS, GISTEMP v4' },
     sourceUrl: 'https://data.giss.nasa.gov/gistemp/',
     series: { kind: 'gistemp' },
@@ -146,6 +165,8 @@ export const variables: Variable[] = [
     },
     unit: { uk: '°C', en: '°C' },
     trendUnit: { uk: '°C за 10 років', en: '°C per decade' },
+    plain: { uk: 'середня температура повітря за рік (день і ніч, зима й літо разом)', en: 'the mean air temperature of the year (day and night, winter and summer together)' },
+    more: WARMER,
     source: { uk: 'NASA POWER і GMAO MERRA-2', en: 'NASA POWER and GMAO MERRA-2' },
     sourceUrl: POWER_URL,
     imagery: {
@@ -172,6 +193,10 @@ export const variables: Variable[] = [
     },
     unit: { uk: 'мм', en: 'mm' },
     trendUnit: { uk: 'мм за 10 років', en: 'mm per decade' },
+    plain: { uk: 'скільки дощу й снігу випало за рік (1 мм — це 1 літр води на квадратний метр)', en: 'how much rain and snow fell in the year (1 mm is 1 litre of water on a square metre)' },
+    more: MORE,
+    ratio: true,
+    bounds: { min: 0 },
     source: { uk: 'NASA POWER і GMAO MERRA-2', en: 'NASA POWER and GMAO MERRA-2' },
     sourceUrl: POWER_URL,
     imagery: {
@@ -198,6 +223,9 @@ export const variables: Variable[] = [
     },
     unit: { uk: '%', en: '%' },
     trendUnit: { uk: 'відсоткових пунктів за 10 років', en: 'percentage points per decade' },
+    plain: { uk: 'наскільки вологий ґрунт під корінням рослин у середньому за рік: 0% — сухий, 100% — повний води', en: 'how wet the soil around plant roots is on average over the year: 0% dry, 100% full of water' },
+    more: WETTER,
+    bounds: { min: 0, max: 100 },
     source: { uk: 'NASA POWER і GMAO MERRA-2', en: 'NASA POWER and GMAO MERRA-2' },
     sourceUrl: POWER_URL,
     imagery: {
@@ -225,6 +253,9 @@ export const variables: Variable[] = [
     },
     unit: { uk: '%', en: '%' },
     trendUnit: { uk: 'відсоткових пунктів за 10 років', en: 'percentage points per decade' },
+    plain: { uk: 'середня вологість повітря за рік: 100% — повітря більше не може втримати пари (туман)', en: 'the mean humidity of the year: 100% means the air can hold no more vapour (fog)' },
+    more: WETTER,
+    bounds: { min: 0, max: 100 },
     source: { uk: 'NASA POWER (числа), AIRS на Aqua (карта)', en: 'NASA POWER (numbers), AIRS on Aqua (map)' },
     sourceUrl: POWER_URL,
     imagery: {
@@ -251,6 +282,8 @@ export const variables: Variable[] = [
     },
     unit: { uk: '°C', en: '°C' },
     trendUnit: { uk: '°C за 10 років', en: '°C per decade' },
+    plain: { uk: 'наскільки нагріта земля (ґрунт, дахи, асфальт, листя) вдень, у середньому за рік', en: 'how hot the ground (soil, roofs, asphalt, leaves) gets by day, on average over the year' },
+    more: WARMER,
     source: { uk: 'MODIS, супутник Terra', en: 'MODIS on Terra' },
     sourceUrl: 'https://lpdaac.usgs.gov/products/mod11c3v061/',
     imagery: {
@@ -267,7 +300,7 @@ export const variables: Variable[] = [
       file: 'lst/ukraine',
       unit: 1,
       combine: 'mean',
-      coverage: { uk: 'Числа поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.).', en: 'Numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E).' },
+      coverage: { uk: 'Числа поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.), і місце має вміщатися туди цілком: для країни, що виходить за цю рамку, число описувало б лише її частину. Оберіть місце в Україні або змінну з NASA POWER (температура, опади, волога).', en: 'Numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E), and the place has to fit inside whole: for a country reaching beyond it, the number would describe only part of it. Pick a place in Ukraine or a NASA POWER variable (temperature, rain, moisture).' },
       fallback: {
         source: { kind: 'power', parameter: 'TS', aggregate: 'mean' },
         note: {
@@ -289,6 +322,9 @@ export const variables: Variable[] = [
     },
     unit: { uk: 'NDVI', en: 'NDVI' },
     trendUnit: { uk: 'NDVI за 10 років', en: 'NDVI per decade' },
+    plain: { uk: 'наскільки зелена земля в середньому за рік: близько 0 — голий ґрунт чи сніг, 0,5 і більше — густа зелень', en: 'how green the land is on average over the year: near 0 bare soil or snow, 0.5 and more dense greenery' },
+    more: { up: { uk: 'зеленіше', en: 'greener' }, down: { uk: 'менш зелено', en: 'less green' } },
+    bounds: { min: -1, max: 1 },
     source: { uk: 'MODIS, супутник Terra', en: 'MODIS on Terra' },
     sourceUrl: 'https://lpdaac.usgs.gov/products/mod13c2v061/',
     imagery: {
@@ -300,7 +336,7 @@ export const variables: Variable[] = [
       last: '2026-10-01',
       month: 7,
     },
-    series: { kind: 'grid', file: 'ndvi/ukraine', unit: 1, combine: 'mean', coverage: { uk: 'Числа поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.).', en: 'Numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E).' } },
+    series: { kind: 'grid', file: 'ndvi/ukraine', unit: 1, combine: 'mean', coverage: { uk: 'Числа поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.), і місце має вміщатися туди цілком: для країни, що виходить за цю рамку, число описувало б лише її частину. Оберіть місце в Україні або змінну з NASA POWER (температура, опади, волога).', en: 'Numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E), and the place has to fit inside whole: for a country reaching beyond it, the number would describe only part of it. Pick a place in Ukraine or a NASA POWER variable (temperature, rain, moisture).' } },
     years: [2001, 2025],
   },
   {
@@ -314,6 +350,10 @@ export const variables: Variable[] = [
     },
     unit: { uk: '10¹⁵ молекул/см²', en: '10¹⁵ molecules/cm²' },
     trendUnit: { uk: '10¹⁵ молекул/см² за 10 років', en: '10¹⁵ molecules/cm² per decade' },
+    plain: { uk: 'скільки вихлопного газу NO₂ (від авто, ТЕС, заводів) у повітрі в середньому за рік; що більше, то брудніше повітря', en: 'how much NO₂ exhaust gas (from cars, power plants, factories) is in the air on average over the year; more means dirtier air' },
+    more: MORE,
+    ratio: true,
+    bounds: { min: 0 },
     source: { uk: 'OMI, супутник Aura (OMNO2d)', en: 'OMI on Aura (OMNO2d)' },
     sourceUrl: 'https://disc.gsfc.nasa.gov/datasets/OMNO2d_003/summary',
     series: {
@@ -321,7 +361,7 @@ export const variables: Variable[] = [
       file: 'no2/ukraine',
       unit: 1e15,
       combine: 'mean',
-      coverage: { uk: 'Числа NO₂ поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.).', en: 'NO₂ numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E).' },
+      coverage: { uk: 'Числа NO₂ поки є лише над Україною та сусідніми районами (44-53° пн. ш., 22-41° сх. д.), і місце має вміщатися туди цілком: для країни, що виходить за цю рамку, число описувало б лише її частину.', en: 'NO₂ numbers cover Ukraine and its neighbourhood only for now (44-53° N, 22-41° E), and the place has to fit inside whole: for a country reaching beyond it, the number would describe only part of it.' },
     },
     years: [2005, 2025],
     imagery: {
@@ -348,6 +388,14 @@ export const variables: Variable[] = [
     },
     unit: { uk: 'млн км²', en: 'million km²' },
     trendUnit: { uk: 'млн км² за 10 років', en: 'million km² per decade' },
+    plain: { uk: 'площа озонової діри над Антарктидою у вересні–жовтні (для порівняння: Україна — 0,6 млн км²)', en: 'the area of the Antarctic ozone hole in September-October (for scale: Ukraine is 0.6 million km²)' },
+    more: MORE,
+    ratio: true,
+    bounds: { min: 0 },
+    seriesNote: {
+      uk: 'Це числа про озонову діру над Антарктидою: вони однакові для будь-якого місця, яке ви оберете. Над Україною озонової діри немає.',
+      en: 'These numbers are about the ozone hole over Antarctica: they are the same for any place you pick. There is no ozone hole over Ukraine.',
+    },
     source: { uk: 'NASA Ozone Watch (TOMS, OMI, OMPS)', en: 'NASA Ozone Watch (TOMS, OMI, OMPS)' },
     sourceUrl: 'https://ozonewatch.gsfc.nasa.gov/',
     imagery: {
@@ -398,8 +446,15 @@ export const variables: Variable[] = [
       uk: 'Точки, де прилад VIIRS за добу зафіксував незвично гарячу поверхню: лісові, степові й польові пожежі, зокрема спричинені обстрілами, а також газові факели. У числах факели й заводи не враховано.',
       en: 'Places where VIIRS detected an unusually hot surface in a day: forest, grass and field fires, including those started by shelling, and gas flares. Flares and plants are left out of the numbers.',
     },
-    unit: { uk: 'виявлень', en: 'detections' },
-    trendUnit: { uk: 'виявлень за 10 років', en: 'detections per decade' },
+    unit: { uk: 'точок вогню', en: 'fire points' },
+    trendUnit: { uk: 'точок вогню за 10 років', en: 'fire points per decade' },
+    plain: {
+      uk: 'скільки разів за рік супутник побачив вогонь (одна точка — ділянка 375×375 м, що горіла під час прольоту; велика пожежа дає багато точок)',
+      en: 'how many times in the year the satellite saw fire (one point is a 375×375 m patch burning as it passed over; a big fire gives many points)',
+    },
+    more: MORE,
+    ratio: true,
+    bounds: { min: 0 },
     source: { uk: 'NASA FIRMS, VIIRS', en: 'NASA FIRMS, VIIRS' },
     sourceUrl: 'https://firms.modaps.eosdis.nasa.gov/',
     imagery: {

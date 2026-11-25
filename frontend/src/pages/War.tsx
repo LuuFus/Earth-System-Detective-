@@ -16,7 +16,7 @@ export default function War() {
   const { lang } = useI18n();
   const t = useLiveText().war;
   useEffect(() => {
-    document.title = `${t.title} · Earth-System-Detective`;
+    document.title = `${t.title} · Earth System Detective`;
   }, [t.title]);
   // The poster is a photo or satellite image of the same story, already credited on the page.
   const video = (v: Video, poster?: string) => <VideoFacade id={v.id} title={v.title} channel={v.channel} playLabel={t.play} note={t.videoNote(v.channel)} poster={poster} />;

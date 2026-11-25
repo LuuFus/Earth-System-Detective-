@@ -382,7 +382,7 @@ export function UkrainePanel(p: UkraineProps) {
       </div>
 
       <section className="panel-sec">
-        <Switch checked={p.aqi} onChange={p.onAqi} label={WAQI_TOKEN ? u.aqiWaqi : u.aqi} note={u.oneOfTwo} />
+        <Switch checked={p.aqi} onChange={p.onAqi} label={WAQI_TOKEN ? u.aqiWaqi : u.aqi} />
         {p.aqi && (
           <div className="sub">
             <ul className="aqi-keys">
@@ -402,7 +402,7 @@ export function UkrainePanel(p: UkraineProps) {
       </section>
 
       <section className="panel-sec">
-        <Switch checked={p.radiation} onChange={p.onRadiation} label={u.radiation} note={u.oneOfTwo} />
+        <Switch checked={p.radiation} onChange={p.onRadiation} label={u.radiation} />
         {p.radiation && (
           <div className="sub">
             <RadiationLegend />

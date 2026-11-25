@@ -139,6 +139,9 @@ export function Flyout({ title, onClose, children }: { title: string; onClose: (
 
 type LayersProps = {
   variable: VariableId | null;
+  /** Layers on together with the main one, oldest first. */
+  extra: VariableId[];
+  onLayerOff: (id: VariableId) => void;
   mode: GistempMode;
   borders: boolean;
   labels: LabelLayers;
@@ -208,11 +211,32 @@ export function LayersPanel(p: LayersProps) {
               <p className="layer-now__kicker">{s.activeLayer}</p>
               <h3 className="layer-now__name">{v.name[lang]}</h3>
             </div>
-            <button type="button" className="chip-btn" onClick={() => p.onVariable(null)}>
+            <button type="button" className="chip-btn" onClick={() => p.onLayerOff(v.id)}>
               <Icon name="close" size={14} />
-              {s.exitLayer}
+              {s.layers.off}
             </button>
           </div>
+          {p.extra.length > 0 && (
+            <div className="layer-now__also">
+              <p className="layer-now__kicker">{s.layers.alsoOn}</p>
+              <ul className="layer-now__list">
+                {[...p.extra].reverse().map((id) => (
+                  <li key={id}>
+                    <button type="button" className="text-btn" title={s.layers.makeMain} onClick={() => p.onVariable(id)}>
+                      {variableById[id].name[lang]}
+                    </button>
+                    <button type="button" className="icon-btn icon-btn--bare icon-btn--small" aria-label={`${s.layers.off}: ${variableById[id].name[lang]}`} onClick={() => p.onLayerOff(id)}>
+                      <Icon name="close" size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="note">{s.layers.stackNote}</p>
+              <button type="button" className="chip-btn" onClick={() => p.onVariable(null)}>
+                {s.exitLayer}
+              </button>
+            </div>
+          )}
           <p className="note">
             {v.definition[lang]}{' '}
             <a href={v.sourceUrl} target="_blank" rel="noreferrer">
@@ -248,9 +272,9 @@ export function LayersPanel(p: LayersProps) {
                   key={x.id}
                   type="button"
                   className="layer-card"
-                  aria-pressed={p.variable === x.id}
+                  aria-pressed={p.variable === x.id || p.extra.includes(x.id)}
                   title={x.definition[lang]}
-                  onClick={() => p.onVariable(p.variable === x.id ? null : x.id)}
+                  onClick={() => (p.variable === x.id || p.extra.includes(x.id) ? p.onLayerOff(x.id) : p.onVariable(x.id))}
                 >
                   <span className="layer-card__img">
                     <LayerThumb id={x.id} />

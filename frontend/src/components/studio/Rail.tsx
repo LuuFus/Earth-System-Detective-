@@ -14,9 +14,9 @@ type Props = {
 type Item = { id: Panel | 'analysis'; icon: IconName; label: string };
 
 /**
- * The tool column on the left, after Google Earth: round icon buttons with their names in a
- * tooltip. The highlight under the open tool stretches as it moves (Design Bookmark's Side Nav
- * springs): the edge facing the move leads, the other trails behind.
+ * The tool column on the left: icon buttons with their names written under them, so it is clear
+ * what is where without hovering. The highlight under the open tool stretches as it moves (Design
+ * Bookmark's Side Nav springs): the edge facing the move leads, the other trails behind.
  */
 export function Rail({ panel, analysisOpen, onPanel, onAnalysis }: Props) {
   const s = useStudio();
@@ -110,8 +110,8 @@ export function Rail({ panel, analysisOpen, onPanel, onAnalysis }: Props) {
                 aria-controls={item.id === 'analysis' ? 'analysis-drawer' : 'studio-panel'}
                 onClick={() => (item.id === 'analysis' ? onAnalysis(!analysisOpen) : onPanel(on ? null : item.id))}
               >
-                <Icon name={item.icon} size={22} />
-                <span className="rail__tip" role="presentation">
+                <Icon name={item.icon} size={20} />
+                <span className="rail__label" aria-hidden="true">
                   {item.label}
                 </span>
               </button>

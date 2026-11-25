@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { MonthlyRow } from '../analysis/series';
+import { clampTo } from '../analysis/facts';
 import { forecastAt, type Band } from '../analysis/stats';
 import { svgToPng, toCsv, yScale, type ChartHandle } from './chartExport';
 
@@ -12,6 +13,10 @@ type Props = {
   format: (v: number) => string;
   /** Show the expected next year (each month's trend carried on one year, with its 95% range). */
   forecast: boolean;
+  /** Draw these years (the latest ones with data when left out). */
+  years?: number[];
+  /** Values the quantity can never pass: the expected range keeps inside. */
+  bounds?: { min?: number; max?: number };
   labels: {
     months: string[];
     mean: (from: number, to: number) => string;
@@ -31,7 +36,8 @@ const YEARS_SHOWN = 4;
  * one year, with the 95% range for that month.
  */
 export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(props, ref) {
-  const { rows, slot, from, to, unit, format, forecast, labels } = props;
+  const { rows, slot, from, to, unit, format, forecast, labels, bounds } = props;
+  const picked = props.years?.join(',') ?? '';
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(360);
@@ -48,16 +54,20 @@ export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(p
   const model = useMemo(() => {
     const period = rows.filter((r) => r.year >= from && r.year <= to);
     const complete = period.filter((r) => r.values.filter(Number.isFinite).length >= 9);
-    const years = complete.slice(-YEARS_SHOWN);
+    const wanted = picked ? picked.split(',').map(Number) : null;
+    const years = wanted ? rows.filter((r) => wanted.includes(r.year)) : complete.slice(-YEARS_SHOWN);
     const mean = Array.from({ length: 12 }, (_, m) => {
       const v = period.map((r) => r.values[m]).filter(Number.isFinite);
       return v.length >= 5 ? v.reduce((a, b) => a + b, 0) / v.length : NaN;
     });
     const next: (Band | null)[] = forecast
-      ? Array.from({ length: 12 }, (_, m) => forecastAt(period.map((r) => ({ x: r.year, y: r.values[m] })), to + 1))
+      ? Array.from({ length: 12 }, (_, m) => {
+          const b = forecastAt(period.map((r) => ({ x: r.year, y: r.values[m] })), to + 1);
+          return b && { x: b.x, mid: clampTo(b.mid, bounds), low: clampTo(b.low, bounds), high: clampTo(b.high, bounds) };
+        })
       : [];
     return { years, mean, next };
-  }, [rows, from, to, forecast]);
+  }, [rows, from, to, forecast, picked, bounds]);
 
   const values = [
     ...model.years.flatMap((r) => r.values),
@@ -71,7 +81,9 @@ export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(p
   const y = (v: number) => PAD.top + (1 - (v - scale.min) / (scale.max - scale.min || 1)) * plotH;
   const id = slot.toLowerCase();
   // Ramp steps 1..4, the newest year always the brightest.
-  const step = (i: number) => YEARS_SHOWN - (model.years.length - 1 - i);
+  const step = (i: number) => Math.max(1, YEARS_SHOWN - (model.years.length - 1 - i));
+  // Years picked one by one get a hue each, so any two can be told apart.
+  const colour = (i: number) => (picked ? `--color-pick-${(i % 6) + 1}` : `--color-year-${id}-${step(i)}`);
 
   const line = (vals: number[]) => {
     let d = '';
@@ -87,7 +99,7 @@ export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(p
     return d;
   };
   const bands = model.next;
-  const bandPath = bands.every((b) => b)
+  const bandPath = bands.length === 12 && bands.every((b) => b)
     ? `M${bands.map((b, m) => `${x(m).toFixed(1)},${y(b!.high).toFixed(1)}`).join('L')}L${bands
         .map((b, m) => ({ b, m }))
         .reverse()
@@ -153,7 +165,7 @@ export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(p
         {bandPath && <path className={`chart__band chart__band--${id}`} data-color={`--color-series-${id}`} data-fill="1" d={bandPath} />}
         <path className="chart__mean" data-color="--color-haze" d={line(model.mean)} />
         {model.years.map((r, i) => (
-          <path key={r.year} className="chart__year" data-color={`--color-year-${id}-${step(i)}`} style={{ stroke: `var(--color-year-${id}-${step(i)})` }} d={line(r.values)} />
+          <path key={r.year} className="chart__year" data-color={colour(i)} style={{ stroke: `var(${colour(i)})` }} d={line(r.values)} />
         ))}
         {bandPath && <path className={`chart__trend chart__trend--ahead chart__trend--${id}`} data-color={`--color-series-${id}`} d={line(bands.map((b) => b!.mid))} />}
         {latest && Number.isFinite(latest.values[11]) && (
@@ -167,7 +179,7 @@ export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(p
             <line className="chart__cross" data-color="--color-star-muted" x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={HEIGHT - PAD.bottom} />
             {model.years.map((r, i) =>
               Number.isFinite(r.values[hover]) ? (
-                <circle key={r.year} className="chart__dot" style={{ fill: `var(--color-year-${id}-${step(i)})` }} cx={x(hover)} cy={y(r.values[hover])} r={4} />
+                <circle key={r.year} className="chart__dot" style={{ fill: `var(${colour(i)})` }} cx={x(hover)} cy={y(r.values[hover])} r={4} />
               ) : null,
             )}
           </g>
@@ -177,7 +189,7 @@ export const SeasonChart = forwardRef<ChartHandle, Props>(function SeasonChart(p
       <ul className="chart__legend">
         {model.years.map((r, i) => (
           <li key={r.year}>
-            <span className="chart__swatch" style={{ background: `var(--color-year-${id}-${step(i)})` }} aria-hidden="true" />
+            <span className="chart__swatch" style={{ background: `var(${colour(i)})` }} aria-hidden="true" />
             {r.year}
           </li>
         ))}

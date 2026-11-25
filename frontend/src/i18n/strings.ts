@@ -2,18 +2,18 @@ export type Lang = 'uk' | 'en';
 
 const uk = {
   meta: {
-    title: 'Earth-System-Detective: тренди Землі з даних NASA',
+    title: 'Earth System Detective: тренди Землі з даних NASA',
     description:
       'Інструмент для NASA Space Apps Challenge 2026: обирайте змінні з місій NASA і дізнавайтеся, що змінюється, де, наскільки і чи це значуще.',
   },
   nav: {
     language: 'Мова сайту',
-    home: 'Earth-System-Detective, на головну',
+    home: 'Earth System Detective, на головну',
     back: 'На головну',
   },
   hero: {
     eyebrow: 'Відкриті дані NASA, NOAA та українських джерел',
-    title: 'Earth-System-Detective',
+    title: 'Earth System Detective',
     lede: '3D-глобус, на якому видно пожежі, вітер і погоду, вогні міст уночі й тренди клімату за 145 років. І окрема картка про Україну: повітря, радіація, фронт, блекаути.',
     cta: 'Відкрити 3D-Землю',
     links: { weather: 'Карта погоди', fires: 'Пожежі', ukraine: 'Україна' },
@@ -30,6 +30,9 @@ const uk = {
       placeholder: 'Країна або місто, наприклад Харків',
       go: 'Показати',
       notFound: 'Не знайдено ні країни, ні міста з такою назвою',
+      countryLabel: 'Пошук країни',
+      countryPlaceholder: 'Країна, наприклад Польща',
+      notCountry: 'Такої країни не знайдено. Місто можна знайти в панелі «Аналіз».',
     },
     layers: {
       title: 'Шари',
@@ -69,18 +72,18 @@ export type Dict = typeof uk;
 
 const en: Dict = {
   meta: {
-    title: 'Earth-System-Detective: Earth trends from NASA data',
+    title: 'Earth System Detective: Earth trends from NASA data',
     description:
       'A NASA Space Apps Challenge 2026 tool: pick variables from NASA missions and find out what is changing, where, by how much, and whether it is significant.',
   },
   nav: {
     language: 'Site language',
-    home: 'Earth-System-Detective, home',
+    home: 'Earth System Detective, home',
     back: 'Home',
   },
   hero: {
     eyebrow: 'Open data from NASA, NOAA and Ukrainian sources',
-    title: 'Earth-System-Detective',
+    title: 'Earth System Detective',
     lede: 'A 3D globe showing fires, wind and weather, city lights at night and 145 years of climate trends. Plus a card on Ukraine: air, radiation, the front, blackouts.',
     cta: 'Open the 3D Earth',
     links: { weather: 'Weather map', fires: 'Fires', ukraine: 'Ukraine' },
@@ -97,6 +100,9 @@ const en: Dict = {
       placeholder: 'Country or city, for example Kharkiv',
       go: 'Show',
       notFound: 'No country or city by that name',
+      countryLabel: 'Find a country',
+      countryPlaceholder: 'Country, for example Poland',
+      notCountry: 'No country by that name. Cities can be found in the Analysis panel.',
     },
     layers: {
       title: 'Layers',

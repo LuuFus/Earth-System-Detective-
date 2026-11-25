@@ -25,14 +25,15 @@ function cityFound(c: WorldCity): Found {
 /**
  * Search for a country or a city: suggestions in the site language; Ukrainian or English names,
  * ISO codes and everyday names for countries; for a place not in the city list, the geocoder.
+ * `countriesOnly`: the 3D Earth's search, where cities are found in the analysis instead.
  */
-export function CountrySearch({ onFound }: { onFound: (place: Found) => void }) {
+export function CountrySearch({ onFound, countriesOnly = false }: { onFound: (place: Found) => void; countriesOnly?: boolean }) {
   const { lang, t } = useI18n();
   const [value, setValue] = useState('');
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const loaded = useLoaded(loadCities);
-  const cities = useMemo(() => loaded ?? [], [loaded]);
+  const cities = useMemo(() => (countriesOnly ? [] : (loaded ?? [])), [loaded, countriesOnly]);
 
   // Official names in both languages, the code, and everyday names ("США", "Америка", "UK").
   const index = useMemo(() => countryIndex(countries, (c) => c.code, lang, (c) => [c.name]), [lang]);
@@ -68,7 +69,7 @@ export function CountrySearch({ onFound }: { onFound: (place: Found) => void }) 
       setValue(exactCountry.label);
       return onFound(country(exactCountry));
     }
-    const city = cityFor(q);
+    const city = countriesOnly ? null : cityFor(q);
     const looseCountry = findCountry(index, q);
     // A city whose name starts with what was typed wins over a country that only contains it.
     const cityFirst = city && (!looseCountry || fold(city[lang]).startsWith(fold(q.split(',')[0])));
@@ -81,6 +82,10 @@ export function CountrySearch({ onFound }: { onFound: (place: Found) => void }) 
       setMissing(false);
       setValue(looseCountry.label);
       return onFound(country(looseCountry));
+    }
+    if (countriesOnly) {
+      setMissing(true);
+      return;
     }
     // Smaller places: the geocoder (GeoNames through Open-Meteo).
     setBusy(true);
@@ -106,7 +111,7 @@ export function CountrySearch({ onFound }: { onFound: (place: Found) => void }) 
   return (
     <form className="search" role="search" onSubmit={onSubmit}>
       <label className="visually-hidden" htmlFor="country-search">
-        {t.explore.search.label}
+        {countriesOnly ? t.explore.search.countryLabel : t.explore.search.label}
       </label>
       <svg className="search__icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
         <circle cx="7" cy="7" r="4.8" fill="none" stroke="currentColor" strokeWidth="1.3" />
@@ -119,7 +124,7 @@ export function CountrySearch({ onFound }: { onFound: (place: Found) => void }) 
         enterKeyHint="search"
         list="country-list"
         autoComplete="off"
-        placeholder={t.explore.search.placeholder}
+        placeholder={countriesOnly ? t.explore.search.countryPlaceholder : t.explore.search.placeholder}
         value={value}
         aria-invalid={missing || undefined}
         aria-busy={busy || undefined}
@@ -152,7 +157,7 @@ export function CountrySearch({ onFound }: { onFound: (place: Found) => void }) 
       </button>
       {missing && (
         <p className="search__error" id="country-search-error" role="status">
-          {t.explore.search.notFound}
+          {countriesOnly ? t.explore.search.notCountry : t.explore.search.notFound}
         </p>
       )}
     </form>
