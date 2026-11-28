@@ -1,0 +1,254 @@
+{
+ "weather": {
+  "source": "NOAA NCEP GFS 0.25/1.0 deg, via NOMADS",
+  "url": "https://www.nco.ncep.noaa.gov/pmb/products/gfs/",
+  "run": "2026-11-28T00Z",
+  "grid": {
+   "ni": 360,
+   "nj": 181,
+   "lat0": 90,
+   "lon0": 0,
+   "step": 1
+  },
+  "vars": [
+   "u",
+   "v",
+   "t",
+   "precip",
+   "gust",
+   "cloud"
+  ],
+  "compression": "deflate",
+  "frames": [
+   {
+    "hour": 3,
+    "time": "2026-11-28T03:00Z",
+    "file": "weather/f003.bin"
+   },
+   {
+    "hour": 6,
+    "time": "2026-11-28T06:00Z",
+    "file": "weather/f006.bin"
+   },
+   {
+    "hour": 9,
+    "time": "2026-11-28T09:00Z",
+    "file": "weather/f009.bin"
+   },
+   {
+    "hour": 12,
+    "time": "2026-11-28T12:00Z",
+    "file": "weather/f012.bin"
+   },
+   {
+    "hour": 15,
+    "time": "2026-11-28T15:00Z",
+    "file": "weather/f015.bin"
+   },
+   {
+    "hour": 18,
+    "time": "2026-11-28T18:00Z",
+    "file": "weather/f018.bin"
+   },
+   {
+    "hour": 21,
+    "time": "2026-11-28T21:00Z",
+    "file": "weather/f021.bin"
+   },
+   {
+    "hour": 24,
+    "time": "2026-11-29T00:00Z",
+    "file": "weather/f024.bin"
+   },
+   {
+    "hour": 27,
+    "time": "2026-11-29T03:00Z",
+    "file": "weather/f027.bin"
+   },
+   {
+    "hour": 30,
+    "time": "2026-11-29T06:00Z",
+    "file": "weather/f030.bin"
+   },
+   {
+    "hour": 33,
+    "time": "2026-11-29T09:00Z",
+    "file": "weather/f033.bin"
+   },
+   {
+    "hour": 36,
+    "time": "2026-11-29T12:00Z",
+    "file": "weather/f036.bin"
+   },
+   {
+    "hour": 39,
+    "time": "2026-11-29T15:00Z",
+    "file": "weather/f039.bin"
+   },
+   {
+    "hour": 42,
+    "time": "2026-11-29T18:00Z",
+    "file": "weather/f042.bin"
+   },
+   {
+    "hour": 45,
+    "time": "2026-11-29T21:00Z",
+    "file": "weather/f045.bin"
+   },
+   {
+    "hour": 48,
+    "time": "2026-11-30T00:00Z",
+    "file": "weather/f048.bin"
+   },
+   {
+    "hour": 51,
+    "time": "2026-11-30T03:00Z",
+    "file": "weather/f051.bin"
+   },
+   {
+    "hour": 54,
+    "time": "2026-11-30T06:00Z",
+    "file": "weather/f054.bin"
+   },
+   {
+    "hour": 57,
+    "time": "2026-11-30T09:00Z",
+    "file": "weather/f057.bin"
+   },
+   {
+    "hour": 60,
+    "time": "2026-11-30T12:00Z",
+    "file": "weather/f060.bin"
+   },
+   {
+    "hour": 63,
+    "time": "2026-11-30T15:00Z",
+    "file": "weather/f063.bin"
+   },
+   {
+    "hour": 66,
+    "time": "2026-11-30T18:00Z",
+    "file": "weather/f066.bin"
+   },
+   {
+    "hour": 69,
+    "time": "2026-11-30T21:00Z",
+    "file": "weather/f069.bin"
+   },
+   {
+    "hour": 72,
+    "time": "2026-12-01T00:00Z",
+    "file": "weather/f072.bin"
+   }
+  ]
+ },
+ "fires": {
+  "source": "NASA FIRMS, near real time: VIIRS 375 m (NOAA-20, NOAA-21, Suomi NPP) and MODIS 1 km (Terra, Aqua)",
+  "newest": "2026-11-27T23:50Z",
+  "url": "https://firms.modaps.eosdis.nasa.gov/",
+  "file": "fires.bin",
+  "compression": "deflate",
+  "count": 210879,
+  "hours": 48,
+  "ukraine": [
+   {
+    "date": "2026-11-22",
+    "count": 6
+   },
+   {
+    "date": "2026-11-23",
+    "count": 4
+   },
+   {
+    "date": "2026-11-24",
+    "count": 4
+   },
+   {
+    "date": "2026-11-25",
+    "count": 12
+   },
+   {
+    "date": "2026-11-26",
+    "count": 12
+   },
+   {
+    "date": "2026-11-27",
+    "count": 2
+   },
+   {
+    "date": "2026-11-28",
+    "count": 0
+   }
+  ]
+ },
+ "air": {
+  "source": "Sensor.Community (open citizen sensors), hourly means; AQI by US EPA 2024 breakpoints",
+  "url": "https://sensor.community/",
+  "file": "air.json",
+  "count": 8907
+ },
+ "radiation": {
+  "file": "radiation.json",
+  "count": 2006,
+  "sources": [
+   "bfs",
+   "stuk",
+   "safecast",
+   "sensor"
+  ]
+ },
+ "airq": {
+  "source": "CAMS European air quality forecasts (Copernicus Atmosphere Monitoring Service), via Open-Meteo",
+  "url": "https://open-meteo.com/en/docs/air-quality-api",
+  "licence": "CC BY 4.0",
+  "built": "2026-11-28T03:57:09Z",
+  "file": "airq.bin",
+  "compression": "deflate",
+  "grid": {
+   "north": 55.0,
+   "west": 20.0,
+   "step": 0.5,
+   "ni": 45,
+   "nj": 25
+  },
+  "vars": [
+   "aqi",
+   "pm25",
+   "dust"
+  ],
+  "times": [
+   "2026-11-28T03:00:00Z",
+   "2026-11-28T06:00:00Z",
+   "2026-11-28T09:00:00Z",
+   "2026-11-28T12:00:00Z",
+   "2026-11-28T15:00:00Z",
+   "2026-11-28T18:00:00Z",
+   "2026-11-28T21:00:00Z",
+   "2026-11-29T00:00:00Z",
+   "2026-11-29T03:00:00Z",
+   "2026-11-29T06:00:00Z",
+   "2026-11-29T09:00:00Z",
+   "2026-11-29T12:00:00Z",
+   "2026-11-29T15:00:00Z",
+   "2026-11-29T18:00:00Z",
+   "2026-11-29T21:00:00Z",
+   "2026-11-30T00:00:00Z",
+   "2026-11-30T03:00:00Z",
+   "2026-11-30T06:00:00Z",
+   "2026-11-30T09:00:00Z",
+   "2026-11-30T12:00:00Z",
+   "2026-11-30T15:00:00Z",
+   "2026-11-30T18:00:00Z",
+   "2026-11-30T21:00:00Z",
+   "2026-12-01T00:00:00Z",
+   "2026-12-01T03:00:00Z",
+   "2026-12-01T06:00:00Z",
+   "2026-12-01T09:00:00Z",
+   "2026-12-01T12:00:00Z",
+   "2026-12-01T15:00:00Z",
+   "2026-12-01T18:00:00Z",
+   "2026-12-01T21:00:00Z"
+  ]
+ },
+ "built": "2026-11-28T03:57:09Z"
+}

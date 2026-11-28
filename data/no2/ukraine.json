@@ -1,0 +1,20 @@
+{
+ "source": "NASA OMI/Aura OMNO2d v003, ColumnAmountNO2TropCloudScreened (GES DISC)",
+ "url": "https://disc.gsfc.nasa.gov/datasets/OMNO2d_003/summary",
+ "unit": "molecules/cm2",
+ "scale": 10000000000000.0,
+ "noData": -32768,
+ "box": {
+  "s": 44.0,
+  "n": 53.0,
+  "w": 22.0,
+  "e": 41.0
+ },
+ "step": 0.25,
+ "rows": 36,
+ "cols": 76,
+ "start": "2005-01",
+ "months": 262,
+ "minDays": 3,
+ "built": "2026-11-11"
+}
